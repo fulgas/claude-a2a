@@ -12,6 +12,7 @@ const PAGES = [
   { file: 'docs/architecture.md', page: 'architecture.md', nav: 'Architecture' },
   { file: 'CHANGELOG.md', page: 'changelog.md', nav: 'Changelog' },
   { file: 'CONTRIBUTING.md', page: 'contributing.md', nav: 'Contributing' },
+  { file: 'docs/project-rules.md', page: 'project-rules.md', nav: 'Project rules' },
   { file: 'SECURITY.md', page: 'security.md', nav: 'Security' },
   { file: 'CODE_OF_CONDUCT.md', page: 'code-of-conduct.md', nav: 'Code of conduct' },
 ]
