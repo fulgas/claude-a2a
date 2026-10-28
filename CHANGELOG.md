@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/fulgas/claude-a2a/compare/v0.2.0...v0.3.0) (2026-10-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **server:** incoming tasks now run in the conversation by default, where a caller can ask for what it holds. Set taskMode to subagent to keep the earlier behaviour, a fresh subagent per task.
+
+### Features
+
+* **plugin:** an icon for the plugin listing ([63983b0](https://github.com/fulgas/claude-a2a/commit/63983b0945484704a34e4f117a738695eb655be0))
+* **server:** run tasks in the conversation, a fresh subagent or a fork ([e89f09d](https://github.com/fulgas/claude-a2a/commit/e89f09da5e8613e9cad4fa33897b078a8d2a7491))
+
 ## [0.2.0](https://github.com/fulgas/claude-a2a/compare/v0.1.0...v0.2.0) (2026-10-28)
 
 
