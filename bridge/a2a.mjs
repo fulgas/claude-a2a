@@ -445,9 +445,9 @@ async function serve(opts) {
           standardHeaders: 'draft-8',
           legacyHeaders: false,
         })
-      : (req, res, nextMw) => nextMw()
+      : (_req, _res, nextMw) => nextMw()
   app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(publicCard) }))
-  if (signer) app.get('/.well-known/jwks.json', (req, res) => res.json(signer.jwks))
+  if (signer) app.get('/.well-known/jwks.json', (_req, res) => res.json(signer.jwks))
   if (withHttp) {
     app.use('/a2a/jsonrpc', limited, authenticated, jsonRpcHandler({ requestHandler, userBuilder }))
     app.use('/a2a/rest', limited, authenticated, restHandler({ requestHandler, userBuilder }))

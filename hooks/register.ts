@@ -325,7 +325,7 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => (next.called ? next(e) : { deny: `${$.plugin.name}: the A2A bridge failed.` }))
 
   // Server, inline: the main-thread turn an A2A prompt starts is the one that answers it.
-  on('turn.start', async ($, e, next) => {
+  on('turn.start', async (_$, e, next) => {
     if (e.agentId === undefined) {
       for (const [header, taskId] of queued) {
         if (!e.text.includes(header)) continue
