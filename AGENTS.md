@@ -12,6 +12,7 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 ## Where the truth is
 
 - **`docs/architecture.md`** (arc42, C4) is the authority on what the plugin does and how it is built. Read the section you are touching before changing code.
+- **`docs/project-rules.md`** says how changes are made: tests, commit types and scopes, how the commits decide a release. Where it and this file differ, it wins.
 - **`.claude-plugin/plugin.json`** holds the options (`userConfig`); the README's options table must match it.
 
 ## Commands

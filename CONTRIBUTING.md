@@ -6,6 +6,7 @@ Thank you for wanting to help. This plugin is a personal project with one mainta
 
 - **Open an issue first** for anything bigger than a typo, so we can agree on the change before you spend time on it.
 - **Read the architecture.** [docs/architecture.md](docs/architecture.md) (arc42, with C4 diagrams) is the authority on how the plugin works. A change to behaviour updates it in the same pull request.
+- **Read the [project rules](docs/project-rules.md)**: the commit types and scopes, and how the commits decide the next release.
 - **Security reports do not go in issues.** See [SECURITY.md](SECURITY.md).
 
 ## Setting up
