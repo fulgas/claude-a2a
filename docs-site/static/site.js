@@ -14,6 +14,19 @@ const diagrams = [...document.querySelectorAll('pre > code[data-lang="mermaid"]'
 async function draw() {
   if (!diagrams.length || !window.mermaid) return
   const css = getComputedStyle(root)
+  const color = name => css.getPropertyValue(name).trim()
+  // The diagrams' classDef colours are for GitHub. Mermaid sets them inline, past any stylesheet, so here each
+  // C4 class is redefined in the theme's colours before the diagram is drawn.
+  const classes = {
+    person: `fill:${color('--accent-ink')},stroke:${color('--accent-ink')},color:${color('--paper')}`,
+    system: `fill:${color('--accent')},stroke:${color('--accent-ink')},color:${color('--paper')}`,
+    container: `fill:${color('--accent-wash')},stroke:${color('--accent')},color:${color('--ink')}`,
+    external: `fill:${color('--surface')},stroke:${color('--muted')},color:${color('--ink')}`,
+  }
+  const themed = source =>
+    source.replace(/^(\s*classDef (\w+)) .*$/gm, (line, head, name) =>
+      classes[name] ? `${head} ${classes[name]}` : line,
+    )
   window.mermaid.initialize({
     startOnLoad: false,
     // Ids from a counter: time-based ids collide when several diagrams draw in one millisecond.
@@ -33,7 +46,7 @@ async function draw() {
   })
   for (const div of diagrams) {
     div.removeAttribute('data-processed')
-    div.textContent = div.dataset.source
+    div.textContent = themed(div.dataset.source)
   }
   await window.mermaid.run({ nodes: diagrams })
   for (const div of diagrams) {
@@ -43,8 +56,9 @@ async function draw() {
     open.textContent = '⤢'
     open.title = 'Open full size'
     open.setAttribute('aria-label', `Open the diagram "${titleOf(div)}" full size`)
-    open.addEventListener('click', () => zoomInto(div))
     div.append(open)
+    // The whole diagram opens it full window, not only the button.
+    div.onclick = () => zoomInto(div)
   }
 }
 

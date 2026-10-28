@@ -362,6 +362,7 @@ pre code {
 }
 .mermaid {
   position: relative;
+  cursor: zoom-in;
 }
 .mermaid svg {
   max-width: 100%;
@@ -387,8 +388,10 @@ pre code {
 
 /* The full-size diagram */
 #zoom {
-  width: 100vw;
-  height: 100vh;
+  position: fixed;
+  inset: 0;
+  width: 100dvw;
+  height: 100dvh;
   max-width: none;
   max-height: none;
   margin: 0;
@@ -396,6 +399,10 @@ pre code {
   border: 0;
   background: var(--paper);
   color: var(--ink);
+}
+/* The page behind does not scroll while a diagram fills the window. */
+html:has(#zoom[open]) {
+  overflow: hidden;
 }
 #zoom::backdrop {
   background: color-mix(in srgb, var(--ink) 40%, transparent);
@@ -440,7 +447,7 @@ pre code {
 }
 #zoom-canvas {
   position: relative;
-  height: calc(100vh - 3.6rem);
+  height: calc(100dvh - 3.6rem);
   overflow: hidden;
   cursor: grab;
   touch-action: none;
@@ -471,31 +478,9 @@ pre code {
   color: inherit;
 }
 
-/* The diagrams' classDef colours are for GitHub; here they follow the site's theme. */
+/* Node colours come from the theme in site.js; these are the lines and labels between them. */
 :is(.mermaid, #zoom-canvas) .node :is(rect, path, polygon, circle, ellipse) {
   stroke-width: 1.5px !important;
-}
-:is(.mermaid, #zoom-canvas) .node.person :is(rect, path) {
-  fill: var(--accent-ink) !important;
-  stroke: var(--accent-ink) !important;
-}
-:is(.mermaid, #zoom-canvas) .node.system :is(rect, path) {
-  fill: var(--accent) !important;
-  stroke: var(--accent-ink) !important;
-}
-:is(.mermaid, #zoom-canvas) .node:is(.person, .system) :is(.nodeLabel, span, p) {
-  color: var(--paper) !important;
-}
-:is(.mermaid, #zoom-canvas) .node.container :is(rect, path) {
-  fill: var(--accent-wash) !important;
-  stroke: var(--accent) !important;
-}
-:is(.mermaid, #zoom-canvas) .node.external :is(rect, path) {
-  fill: var(--surface) !important;
-  stroke: var(--muted) !important;
-}
-:is(.mermaid, #zoom-canvas) .node:is(.container, .external) :is(.nodeLabel, span, p) {
-  color: var(--ink) !important;
 }
 :is(.mermaid, #zoom-canvas) .cluster rect {
   fill: none !important;
