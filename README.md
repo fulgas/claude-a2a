@@ -41,7 +41,8 @@ Every tool takes `transport` (`jsonrpc` \| `rest` \| `grpc`; the default is the 
 
 ```
 /a2a-serve [--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1]
-           [--api-key K] [--oidc-issuer URL --oidc-audience AUD] [--name N]
+           [--api-key K] [--oidc-issuer URL --oidc-audience AUD]
+           [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20] [--name N]
 /a2a-stop
 ```
 
@@ -76,6 +77,9 @@ Set defaults in `/plugin`, under the plugin's options, or in `settings.json`:
 | `apiKey` | empty | API key callers may send in `X-API-Key`. Sensitive |
 | `oidcIssuer` | empty | OIDC issuer whose JWTs callers may send as `Authorization: Bearer` |
 | `oidcAudience` | empty | The `aud` those JWTs must carry. Required with `oidcIssuer` |
+| `maxConcurrentTasks` | `4` | Incoming tasks that run at once; one more fails as busy. `0`: no limit |
+| `tasksPerMinute` | `30` | Tasks one caller may start in a minute. `0`: no limit |
+| `authFailuresPerMinute` | `20` | Failed sign-ins a client may make in a minute before it is refused (HTTP 429). `0`: no limit |
 | `autoServe` | `false` | Start the server when a session starts |
 | `clientApiKey` | `$A2A_API_KEY` | API key sent to agents whose card asks for one. Sensitive |
 | `oauthClientId`, `oauthClientSecret` | `$A2A_OAUTH_CLIENT_ID`, `$A2A_OAUTH_CLIENT_SECRET` | OAuth2 client for the client-credentials grant. The secret is sensitive |
@@ -93,6 +97,8 @@ Flags typed after `/a2a-serve` override the saved values for that run. Secrets r
 - **OIDC / OAuth2 JWT:** callers send `Authorization: Bearer <jwt>` from your identity provider. At start the server reads the issuer's discovery document and key set, then checks each token's signature (asymmetric algorithms only), `iss`, `aud` and `exp`. The token's `sub` names the caller in the task's toast.
 
 The agent card advertises whichever schemes are on, and stays public, so clients can learn what to send.
+
+**Limits.** Each task runs a Claude subagent on your tokens, so the server caps them: `maxConcurrentTasks` at once, and `tasksPerMinute` per caller (an API key, a JWT subject, or anonymous). A task over a limit fails at once, before any subagent starts, with a status that says which. A client that keeps failing to sign in is refused for the rest of the minute after `authFailuresPerMinute` attempts, so a key cannot be guessed.
 
 **Client.** The tools read the remote agent's card and send what it asks for:
 

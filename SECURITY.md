@@ -10,6 +10,7 @@ The server (`/a2a-serve`) turns every incoming A2A message into a prompt that a 
 
 - a way to reach the server without a valid API key or JWT, or past the loopback-only default
 - a JWT the server accepts although its signature, issuer, audience or expiry is wrong
+- a way past the failed sign-in limit, or to start subagents past the task limits
 - a way to make the bridge or the plugin run something other than the subagent the task asked for
 - an API key, OAuth client secret or token leaking into argv, logs, the agent card or a tool result
 
