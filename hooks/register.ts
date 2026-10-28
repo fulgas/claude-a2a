@@ -39,6 +39,9 @@ const apiKeySchema = {
     "API key, if the agent's card asks for one and it is not the saved client API key. Default: $A2A_API_KEY.",
 }
 
+// Tokens the bridge got, by its cache key, so a sign-in lasts the session. Kept in memory only, never on disk.
+const tokens: Record<string, unknown> = {}
+
 // Saved client credentials go to the bridge in its environment, over any the host sets; unset ones fall back to it.
 function clientEnv(options: PluginOptions) {
   const env: Record<string, string> = {}
@@ -50,6 +53,15 @@ function clientEnv(options: PluginOptions) {
   set('A2A_OAUTH_CLIENT_SECRET', options.oauthClientSecret)
   set('A2A_OAUTH_SCOPE', options.oauthScope)
   set('A2A_OAUTH_AUDIENCE', options.oauthAudience)
+  set('A2A_OAUTH_REDIRECT_PORT', options.oauthRedirectPort)
+  set('A2A_HTTP_USERNAME', options.clientUsername)
+  set('A2A_HTTP_PASSWORD', options.clientPassword)
+  set('A2A_TLS_CA', options.clientTlsCa)
+  set('A2A_TLS_CERT', options.clientTlsCert)
+  set('A2A_TLS_KEY', options.clientTlsKey)
+  set('A2A_CARD_JWKS', options.trustedCardKeys)
+  set('A2A_REQUIRE_SIGNED_CARDS', options.requireSignedCards && '1')
+  if (Object.keys(tokens).length) env.A2A_TOKEN_CACHE = JSON.stringify(tokens)
   return env
 }
 
@@ -90,7 +102,16 @@ function serveArgs(options: PluginOptions, typed: string[]) {
     if (options[option] !== undefined) saved.push(flag, String(options[option]))
   }
   if (options.oidcIssuer) saved.push('--oidc-issuer', String(options.oidcIssuer))
-  if (options.oidcAudience) saved.push('--oidc-audience', String(options.oidcAudience))
+  for (const [flag, option] of [
+    ['--oidc-audience', 'oidcAudience'],
+    ['--required-scopes', 'requiredScopes'],
+    ['--tls-cert', 'tlsCert'],
+    ['--tls-key', 'tlsKey'],
+    ['--tls-client-ca', 'tlsClientCa'],
+    ['--card-signing-key', 'cardSigningKey'],
+  ] as const) {
+    if (options[option]) saved.push(flag, String(options[option]))
+  }
   const env: Record<string, string> = options.apiKey ? { A2A_SERVE_API_KEY: String(options.apiKey) } : {}
   return { args: [...saved, ...typed], env }
 }
@@ -153,14 +174,17 @@ export const register: Register = (on, options) => {
     await Promise.all([
       $.tool.register({
         name: 'card',
-        description: "Fetch a remote A2A agent's agent card (name, skills, transports) from its base URL.",
+        description:
+          "Fetch a remote A2A agent's agent card (name, skills, transports, security) from its base URL. " +
+          'Returns the extended card when the saved credentials can sign in, and whether the card is signed and verified.',
         inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
       }),
       $.tool.register({
         name: 'send',
         description:
           'Send a message to a remote A2A agent and wait for the result (streams progress). ' +
-          'Pass contextId to continue a conversation, taskId to answer a task in input-required state.',
+          'Pass contextId to continue a conversation, taskId to answer a task in input-required or auth-required state. ' +
+          'If the agent needs a person to sign in, the call shows them a URL and waits.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -209,7 +233,7 @@ export const register: Register = (on, options) => {
         name: 'a2a-serve',
         description: 'Expose this session as an A2A agent (JSON-RPC/SSE, HTTP+JSON, gRPC)',
         argumentHint:
-          '[--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1] [--api-key K] [--oidc-issuer URL --oidc-audience AUD] [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--name N]',
+          '[--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1] [--api-key K] [--oidc-issuer URL --oidc-audience AUD [--required-scopes S]] [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM] [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--name N]',
       }),
       $.command.register({ name: 'a2a-stop', description: 'Stop the A2A server' }),
     ])
@@ -244,6 +268,12 @@ export const register: Register = (on, options) => {
     let last: BridgeLine = { type: 'error', error: 'bridge exited without a result' }
     for await (const msg of lines(bridge($, args, clientEnv(options)))) {
       if (msg.type === 'progress') $.ui.notice(e.tool_use_id, `${msg.state}: ${String(msg.text).slice(0, 120)}`)
+      else if (msg.type === 'login') {
+        // The call waits until the person signs in: on a device page with a code, or in the browser.
+        const text = `Sign in to the A2A agent at ${msg.url}${msg.code ? ` with the code ${msg.code}` : ''}`
+        $.ui.notice(e.tool_use_id, text)
+        $.ui.toast(text)
+      } else if (msg.type === 'token') tokens[String(msg.key)] = msg.value
       else last = msg
     }
     const { type, ...rest } = last

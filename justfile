@@ -15,7 +15,7 @@ build:
 
 # Every test: the bridge end to end over every transport, then the hooks module against the engine.
 test: build
-    node --test bridge/a2a.test.mjs
+    node --test bridge/*.test.mjs
     claude plugin test .
 
 # Format and lint check, the plugin as the engine reads it, and the workflows' security audit.

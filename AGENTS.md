@@ -21,7 +21,7 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 | --- | --- |
 | `just check` | Everything CI runs. Run before every pull request. |
 | `just build` | Bundles `bridge/a2a.mjs` into `dist/a2a.mjs`. Run after every bridge change and commit the result. |
-| `just test` | The bridge end to end over every transport (`bridge/a2a.test.mjs`), then the hooks module against the engine (`tests/*.test.ts`). |
+| `just test` | The bridge end to end over every transport (`bridge/a2a.test.mjs`) and the client's authentication (`bridge/auth.test.mjs`), then the hooks module against the engine (`tests/*.test.ts`). |
 | `just lint` | Biome, `claude plugin validate .` and zizmor on the workflows. `just fix` applies Biome's fixes. |
 | `just audit` | `npm audit` on what ships, and registry signatures and provenance for every package. |
 | `just docs`, `just docs-serve` | Build the documentation site into `docs-site/dist`, or serve it on http://localhost:8000. The site is built from `README.md`, `docs/` and the policies by `docs-site/sync.mjs`; never edit `docs-site/content/`. |
@@ -31,7 +31,7 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 - **Split by capability.** The hooks module registers tools and commands, spawns subagents and reads their answers. The bridge does everything that needs a socket. Nothing protocol-specific goes in the hooks module.
 - **The SDK first.** Protocol behaviour comes from `@a2a-js/sdk`; the bridge only wires it. Read the SDK's types before writing protocol code of our own.
 - **KISS, YAGNI.** No abstraction with one implementation, no option for a value nobody changes.
-- **Security at the boundary.** The server is loopback-only without an API key or an OIDC issuer; secrets travel in the environment, never argv; credentials are checked on every transport. Do not weaken any of these without an issue that says why.
+- **Security at the boundary.** The server is loopback-only without an API key, an issuer or a client CA; secrets travel in the environment, never argv; credentials are checked on every transport. Do not weaken any of these without an issue that says why.
 - **Mermaid** draws the diagrams in `docs/`, and never contains a semicolon: Mermaid reads it as the end of a statement.
 
 ## Making a change
@@ -51,4 +51,4 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 
 ## Secrets
 
-Secrets (`A2A_SERVE_API_KEY`, `A2A_API_KEY`, `A2A_TOKEN`, `A2A_OAUTH_CLIENT_SECRET`, and the `apiKey`, `clientApiKey` and `oauthClientSecret` options) are never printed, logged or committed, and never put on a command line.
+Secrets (`A2A_SERVE_API_KEY`, `A2A_API_KEY`, `A2A_TOKEN`, `A2A_OAUTH_CLIENT_SECRET`, `A2A_HTTP_PASSWORD`, `A2A_TOKEN_CACHE`, the private keys the TLS and card signing options name, and the `apiKey`, `clientApiKey`, `clientPassword` and `oauthClientSecret` options) are never printed, logged or committed, and never put on a command line.

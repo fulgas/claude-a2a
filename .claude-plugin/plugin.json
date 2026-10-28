@@ -34,7 +34,7 @@
     "host": {
       "type": "string",
       "title": "Server bind address",
-      "description": "127.0.0.1 keeps the server local. Any other address requires an API key or an OIDC issuer.",
+      "description": "127.0.0.1 keeps the server local. Any other address requires an API key, an OIDC issuer or a client CA.",
       "default": "127.0.0.1"
     },
     "name": {
@@ -52,14 +52,44 @@
     },
     "oidcIssuer": {
       "type": "string",
-      "title": "Server OIDC issuer",
-      "description": "Callers may send a JWT from this issuer as Authorization: Bearer. Its discovery document and key set are fetched at start. Needs an audience. Empty: no OIDC.",
+      "title": "Server OIDC / OAuth 2.0 issuer",
+      "description": "Callers may send a JWT from this issuer as Authorization: Bearer. Its OpenID Connect discovery document, or else its OAuth 2.0 metadata (RFC 8414), and its key set are fetched at start. Needs an audience. Empty: no tokens.",
       "default": ""
     },
     "oidcAudience": {
       "type": "string",
       "title": "Server OIDC audience",
       "description": "The aud a caller's JWT must carry.",
+      "default": ""
+    },
+    "requiredScopes": {
+      "type": "string",
+      "title": "Server: required scopes",
+      "description": "Scopes a caller's JWT must all carry, separated by spaces. The card lists them, so clients ask for them. Empty: none.",
+      "default": ""
+    },
+    "tlsCert": {
+      "type": "string",
+      "title": "Server TLS certificate",
+      "description": "PEM file. With the key, the server serves HTTPS and gRPC over TLS. Empty: plaintext.",
+      "default": ""
+    },
+    "tlsKey": {
+      "type": "string",
+      "title": "Server TLS private key",
+      "description": "PEM file for the TLS certificate.",
+      "default": ""
+    },
+    "tlsClientCa": {
+      "type": "string",
+      "title": "Server: client CA (mutual TLS)",
+      "description": "PEM file. Every connection must then present a client certificate this CA signed, as well as any other credential. Needs the TLS certificate. Empty: no mutual TLS.",
+      "default": ""
+    },
+    "cardSigningKey": {
+      "type": "string",
+      "title": "Server: agent card signing key",
+      "description": "Private key file (PEM or JWK; EC, Ed25519 or RSA). The card is signed with it, and its public key served at /.well-known/jwks.json. Empty: unsigned card.",
       "default": ""
     },
     "maxConcurrentTasks": {
@@ -117,6 +147,55 @@
       "title": "Client OAuth audience",
       "description": "The audience to ask for, for providers that take one (Auth0). Empty: $A2A_OAUTH_AUDIENCE.",
       "default": ""
+    },
+    "oauthRedirectPort": {
+      "type": "number",
+      "title": "Client OAuth redirect port",
+      "description": "Loopback port for the authorization-code sign-in, for providers that need the exact redirect URI registered (http://127.0.0.1:PORT/callback). 0: any free port.",
+      "default": 0
+    },
+    "clientUsername": {
+      "type": "string",
+      "title": "Client HTTP Basic username",
+      "description": "Sent to agents whose card asks for HTTP Basic. Empty: $A2A_HTTP_USERNAME.",
+      "default": ""
+    },
+    "clientPassword": {
+      "type": "string",
+      "title": "Client HTTP Basic password",
+      "description": "Empty: $A2A_HTTP_PASSWORD.",
+      "sensitive": true,
+      "default": ""
+    },
+    "clientTlsCa": {
+      "type": "string",
+      "title": "Client: CA to trust",
+      "description": "PEM file, trusted instead of the system's CAs for HTTPS and gRPC over TLS. Empty: $A2A_TLS_CA, else the system's.",
+      "default": ""
+    },
+    "clientTlsCert": {
+      "type": "string",
+      "title": "Client TLS certificate (mutual TLS)",
+      "description": "PEM file presented to agents that ask for mutual TLS. Empty: $A2A_TLS_CERT.",
+      "default": ""
+    },
+    "clientTlsKey": {
+      "type": "string",
+      "title": "Client TLS private key",
+      "description": "PEM file for the client certificate. Empty: $A2A_TLS_KEY.",
+      "default": ""
+    },
+    "trustedCardKeys": {
+      "type": "string",
+      "title": "Client: trusted card keys",
+      "description": "A key set (JWKS) URL or file that agent card signatures must verify against. Empty: $A2A_CARD_JWKS, else the key set the signature names on the agent's own origin.",
+      "default": ""
+    },
+    "requireSignedCards": {
+      "type": "boolean",
+      "title": "Client: require signed cards",
+      "description": "Refuse agents whose card is not signed.",
+      "default": false
     }
   }
 }
