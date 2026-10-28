@@ -22,6 +22,27 @@ async function discover(url) {
 }
 
 /**
+ * Counts events per key in a fixed one-minute window: failed sign-ins per gRPC peer, tasks per caller.
+ * A limit of 0 never fills.
+ */
+export function perMinute(limit, windowMs = 60_000) {
+  const windows = new Map()
+  const current = key => {
+    const entry = windows.get(key)
+    if (entry && Date.now() - entry.since < windowMs) return entry
+    const fresh = { since: Date.now(), count: 0 }
+    windows.set(key, fresh)
+    return fresh
+  }
+  return {
+    isFull: key => limit > 0 && current(key).count >= limit,
+    add: key => {
+      current(key).count++
+    },
+  }
+}
+
+/**
  * The server's authenticator. With neither an API key nor an issuer, every request passes as `anonymous`.
  * `authenticate(headers)` resolves the caller's name, or null when the request must be refused.
  */

@@ -10,6 +10,7 @@
 // Server:  a2a serve  --control <unix socket> [--host 127.0.0.1] [--port 41241] [--grpc-port 41242]
 //                     [--transports all|http|grpc] [--api-key K (or $A2A_SERVE_API_KEY)]
 //                     [--oidc-issuer URL --oidc-audience AUD]
+//                     [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20]
 //
 // Output is NDJSON on stdout. `serve` prints {"type":"task",...} for every incoming
 // task and waits for the plugin to POST the answer to /reply on the control socket.
@@ -35,8 +36,9 @@ import { agentCardHandler, jsonRpcHandler, restHandler } from '@a2a-js/sdk/serve
 import { A2AService, grpcService } from '@a2a-js/sdk/server/grpc'
 import * as grpc from '@grpc/grpc-js'
 import express from 'express'
+import { rateLimit } from 'express-rate-limit'
 
-import { clientHeaders, serverAuth } from './auth.mjs'
+import { clientHeaders, perMinute, serverAuth } from './auth.mjs'
 
 // Read at run time, so a release bumps package.json alone and dist/ stays as built.
 // From bridge/ and from dist/ alike, package.json is one folder up.
@@ -199,6 +201,11 @@ async function serve(opts) {
     throw new Error(`--transports must be all, http or grpc, not "${opts.transports}"`)
   }
   // The HTTP port always serves the agent card: clients discover every transport through it.
+  // Each task runs a Claude subagent: these keep any caller, signed in or not, from flooding the session.
+  const maxConcurrent = Number(opts['max-concurrent-tasks'])
+  const callerTasks = perMinute(Number(opts['tasks-per-minute']))
+  const authFailuresPerMinute = Number(opts['auth-failures-per-minute'])
+  const running = new Set()
   const withHttp = opts.transports !== 'grpc'
   const withGrpc = opts.transports !== 'http'
 
@@ -256,12 +263,27 @@ async function serve(opts) {
         task.history = [userMessage]
         bus.publish(AgentEvent.task(task))
       }
+      const caller = ctx.context?.user?.userName ?? 'anonymous'
+      // Refused before a subagent starts, so a refused task costs nothing.
+      const refusal =
+        maxConcurrent > 0 && running.size >= maxConcurrent
+          ? `busy: ${running.size} tasks are running, the most this agent takes at once; try again later`
+          : callerTasks.isFull(caller)
+            ? 'rate limit: too many tasks from this caller in the last minute; try again later'
+            : undefined
+      if (refusal) {
+        bus.publish(status(taskId, contextId, 'TASK_STATE_FAILED', refusal))
+        bus.finished()
+        return
+      }
+      callerTasks.add(caller)
+      running.add(taskId)
       bus.publish(status(taskId, contextId, 'TASK_STATE_WORKING'))
       const answer = new Promise(resolve => pending.set(taskId, resolve))
-      const caller = ctx.context?.user?.userName ?? 'anonymous'
       out({ type: 'task', taskId, contextId, caller, text: partsText(userMessage.parts) })
       const { ok, text, canceled } = await answer
       pending.delete(taskId)
+      running.delete(taskId)
       if (!canceled) {
         bus.publish(
           AgentEvent.artifactUpdate(
@@ -300,26 +322,45 @@ async function serve(opts) {
       err => nextMw(err),
     )
   const userBuilder = async req => new Caller(req.caller)
+  // Refuses a client that keeps failing to authenticate, so a key cannot be guessed; successful calls do not count.
+  const limited =
+    authFailuresPerMinute > 0
+      ? rateLimit({
+          windowMs: 60_000,
+          limit: authFailuresPerMinute,
+          skipSuccessfulRequests: true,
+          standardHeaders: 'draft-8',
+          legacyHeaders: false,
+        })
+      : (req, res, nextMw) => nextMw()
   app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(card) }))
   if (withHttp) {
-    app.use('/a2a/jsonrpc', authenticated, jsonRpcHandler({ requestHandler, userBuilder }))
-    app.use('/a2a/rest', authenticated, restHandler({ requestHandler, userBuilder }))
+    app.use('/a2a/jsonrpc', limited, authenticated, jsonRpcHandler({ requestHandler, userBuilder }))
+    app.use('/a2a/rest', limited, authenticated, restHandler({ requestHandler, userBuilder }))
   }
   const httpServer = app.listen(port, host)
   const httpUp = new Promise(resolve => httpServer.once('listening', resolve))
 
+  const grpcFailures = perMinute(authFailuresPerMinute)
   const grpcServer = new grpc.Server()
   grpcServer.addService(
     A2AService,
     grpcService({
       requestHandler,
       userBuilder: async call => {
+        const peer = call.getPeer().replace(/:\d+$/, '')
+        if (grpcFailures.isFull(peer)) {
+          throw Object.assign(new Error('too many failed attempts'), { code: grpc.status.RESOURCE_EXHAUSTED })
+        }
         const header = name => call.metadata.get(name)[0]?.toString()
         const caller = await auth.authenticate({
           'x-api-key': header('x-api-key'),
           authorization: header('authorization'),
         })
-        if (!caller) throw Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
+        if (!caller) {
+          grpcFailures.add(peer)
+          throw Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
+        }
         return new Caller(caller)
       },
     }),
@@ -381,6 +422,9 @@ const { positionals, values } = parseArgs({
     'api-key': { type: 'string' },
     'oidc-issuer': { type: 'string' },
     'oidc-audience': { type: 'string' },
+    'max-concurrent-tasks': { type: 'string', default: '4' },
+    'tasks-per-minute': { type: 'string', default: '30' },
+    'auth-failures-per-minute': { type: 'string', default: '20' },
     host: { type: 'string', default: '127.0.0.1' },
     port: { type: 'string', default: '41241' },
     'grpc-port': { type: 'string', default: '41242' },

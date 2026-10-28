@@ -30,8 +30,10 @@ async function clientWith(env, ...args) {
 }
 const client = (...args) => clientWith({}, ...args)
 
-// Starts `serve` and answers every task with "echo: <text>", as the plugin would.
+// Starts `serve` and answers every task with "echo: <text>", as the plugin would; a leading
+// `{ replyAfterMs }` holds each answer back, to keep tasks running.
 async function serve(...args) {
+  const { replyAfterMs = 0 } = typeof args[0] === 'object' ? args.shift() : {}
   const [port, grpcPort] = [await freePort(), await freePort()]
   const control = `/tmp/a2a-test-${randomUUID().slice(0, 8)}.sock`
   const child = spawn('node', [BRIDGE, 'serve', '--control', control, '--port', port, '--grpc-port', grpcPort, ...args])
@@ -49,9 +51,13 @@ async function serve(...args) {
         if (msg.type === 'error') reject(new Error(msg.error))
         if (msg.type === 'task') {
           callers.push(msg.caller)
-          http
-            .request({ socketPath: control, path: '/reply', method: 'POST' }, res => res.resume())
-            .end(JSON.stringify({ taskId: msg.taskId, ok: true, text: `echo: ${msg.text}` }))
+          setTimeout(
+            () =>
+              http
+                .request({ socketPath: control, path: '/reply', method: 'POST' }, res => res.resume())
+                .end(JSON.stringify({ taskId: msg.taskId, ok: true, text: `echo: ${msg.text}` })),
+            replyAfterMs,
+          )
         }
       }
     })
@@ -176,6 +182,18 @@ describe('api key', async () => {
     })
   }
 
+  for (const transport of ['jsonrpc', 'grpc']) {
+    test(`${transport} refuses a client that keeps guessing, even with the right key`, async () => {
+      const guessed = await serve('--api-key', 'k3y')
+      const guesses = Array.from({ length: 20 }, (_, i) =>
+        client('send', guessed.url, 'x', '--transport', transport, '--api-key', `guess-${i}`),
+      )
+      await Promise.all(guesses)
+      const r = await client('send', guessed.url, 'x', '--transport', transport, '--api-key', 'k3y')
+      assert.match(r.error, /429 Too Many Requests|too many failed attempts/)
+    })
+  }
+
   test('a non-loopback host with no API key and no OIDC issuer is refused', async () => {
     const r = await client('serve', '--control', '/tmp/a2a-unused.sock', '--host', '0.0.0.0')
     assert.match(r.error, /refusing to listen/)
@@ -237,5 +255,30 @@ describe('api key and oidc together', async () => {
     assert.equal((await client('send', url, 'x', '--api-key', 'k3y')).state, 'completed')
     assert.equal((await client('send', url, 'x', '--token', await provider.sign())).state, 'completed')
     assert.match((await client('send', url, 'x')).error, /401|unauthorized/i)
+  })
+})
+
+describe('task limits', async () => {
+  test('a caller over its tasks a minute gets a failed task, before any subagent starts', async () => {
+    const { url, callers } = await serve('--tasks-per-minute', '2')
+    for (const n of [1, 2]) assert.equal((await client('send', url, `task ${n}`)).state, 'completed')
+    const over = await client('send', url, 'task 3')
+    assert.equal(over.state, 'failed')
+    assert.match(over.status, /rate limit/)
+    assert.equal(callers.length, 2)
+  })
+
+  test('a task over the concurrent limit fails as busy while the others run', async () => {
+    const { url } = await serve({ replyAfterMs: 1500 }, '--max-concurrent-tasks', '1')
+    const [a, b] = await Promise.all([client('send', url, 'first'), client('send', url, 'second')])
+    const states = [a.state, b.state].sort()
+    assert.deepEqual(states, ['completed', 'failed'])
+    assert.match([a, b].find(r => r.state === 'failed').status, /busy/)
+  })
+
+  test('the failed sign-in limit is configurable', async () => {
+    const { url } = await serve('--api-key', 'k3y', '--auth-failures-per-minute', '3')
+    for (const n of [1, 2, 3]) await client('send', url, 'x', '--api-key', `guess-${n}`)
+    assert.match((await client('send', url, 'x', '--api-key', 'k3y')).error, /429 Too Many Requests/)
   })
 })
