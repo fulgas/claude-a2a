@@ -1,0 +1,74 @@
+name: Bug report
+description: Something in the a2a plugin does not work as the documentation says
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The plugin release, or the commit you installed.
+      placeholder: e.g. v0.1.0 or a commit hash
+    validations:
+      required: true
+  - type: dropdown
+    id: side
+    attributes:
+      label: Which side
+      options:
+        - "Client: calling another agent (card, send, get_task, cancel_task)"
+        - "Server: /a2a-serve receiving calls"
+        - Installing or configuring the plugin
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options:
+        - JSON-RPC (HTTP + SSE)
+        - HTTP+JSON (REST)
+        - gRPC
+        - Not transport-specific
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. /a2a-serve --transports grpc
+        2. From another agent, send '...'
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Where it runs
+      value: |
+        - Claude Code version (`claude --version`):
+        - Node version (`node --version`):
+        - Operating system:
+        - The other agent, if any (SDK, language, version):
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Tool result or log lines
+      description: The tool's JSON result, or lines from `claude --debug`. Remove bearer tokens before pasting.
+      render: shell
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the existing issues first
+          required: true

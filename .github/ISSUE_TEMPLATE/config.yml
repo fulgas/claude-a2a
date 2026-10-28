@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation
+    url: https://github.com/fulgas/claude-a2a#readme
+    about: How the plugin works, how to install, configure and use it
+  - name: 🔒 Security vulnerability
+    url: https://github.com/fulgas/claude-a2a/security/advisories/new
+    about: Report a vulnerability privately, as SECURITY.md says
