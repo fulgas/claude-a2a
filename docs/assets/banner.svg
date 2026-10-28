@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="A2A for Claude Code: call A2A agents, and serve your session as one">
+  <style>
+    .bg { fill: #fbf7f2 } .ink { fill: #1f1b17 } .muted { fill: #6b635b } .accent { fill: #b5472a } .line { stroke: #b5472a } .node { fill: #f6e4dc; stroke: #b5472a }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #171412 } .ink { fill: #ede6dd } .muted { fill: #a79e94 } .accent { fill: #e07a5a } .line { stroke: #e07a5a } .node { fill: #3a231b; stroke: #e07a5a }
+    }
+    text { font-family: Georgia, 'Times New Roman', serif }
+    .sans { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif }
+  </style>
+  <rect class="bg" width="1280" height="320" rx="24"/>
+  <text class="accent" x="80" y="150" font-size="96" font-weight="700" letter-spacing="-3">A2A</text>
+  <text class="ink" x="300" y="150" font-size="44">for Claude Code</text>
+  <text class="muted sans" x="84" y="208" font-size="24">Call any A2A agent from a session, or serve the session as one.</text>
+  <text class="muted sans" x="84" y="248" font-size="20">JSON-RPC + SSE · HTTP+JSON · gRPC · client and server</text>
+  <g stroke-width="3" fill="none" class="line">
+    <path d="M1004 120 H1112" stroke-linecap="round"/>
+    <path d="M1112 200 H1004" stroke-linecap="round"/>
+  </g>
+  <g class="accent">
+    <path d="M1112 112 l14 8 l-14 8 z"/>
+    <path d="M1004 192 l-14 8 l14 8 z"/>
+  </g>
+  <rect class="node" x="880" y="90" width="110" height="140" rx="16" stroke-width="2.5"/>
+  <rect class="node" x="1130" y="90" width="110" height="140" rx="16" stroke-width="2.5"/>
+  <text class="ink sans" x="935" y="167" font-size="20" font-weight="600" text-anchor="middle">Claude</text>
+  <text class="ink sans" x="1185" y="167" font-size="20" font-weight="600" text-anchor="middle">Agent</text>
+</svg>

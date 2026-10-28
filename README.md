@@ -1,5 +1,15 @@
 # a2a: Agent2Agent for Claude Code
 
+<p align="center"><img src="docs/assets/banner.svg" alt="A2A for Claude Code: call A2A agents, and serve your session as one" width="100%"></p>
+
+<p align="center">
+  <a href="https://github.com/fulgas/claude-a2a/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/fulgas/claude-a2a?color=B5472A"></a>
+  <a href="https://fulgas.github.io/claude-a2a/"><img alt="Documentation" src="https://img.shields.io/badge/docs-fulgas.github.io-B5472A"></a>
+  <a href="#license"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue"></a>
+  <a href="https://github.com/fulgas/claude-a2a/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/fulgas/claude-a2a/actions/workflows/codeql.yml/badge.svg?branch=main"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/fulgas/claude-a2a"><img alt="OpenSSF Scorecard" src="https://api.scorecard.dev/projects/github.com/fulgas/claude-a2a/badge"></a>
+</p>
+
 Documentation: **[fulgas.github.io/claude-a2a](https://fulgas.github.io/claude-a2a/)**
 
 A Claude Code plugin that speaks the [A2A protocol](https://a2a-protocol.org) in both directions:
