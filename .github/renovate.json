@@ -4,14 +4,15 @@
   "prConcurrentLimit": 3,
   "schedule": ["* 0-5 1,15 * *"],
   "semanticCommits": "enabled",
-  "semanticCommitType": "build",
+  "semanticCommitType": "chore",
   "semanticCommitScope": "deps",
   "packageRules": [
     {
-      "description": "The bridge's dependencies are bundled into dist/a2a.mjs, so they change what ships: build(deps). CI fails until `npm run build` is committed on the branch.",
+      "description": "The bridge's dependencies are bundled into dist/a2a.mjs, so they ship: fix(deps), a patch release. CI fails until `npm run build` is committed on the branch.",
       "matchManagers": ["npm"],
       "matchDepTypes": ["dependencies"],
-      "groupName": "Bridge dependencies"
+      "groupName": "Bridge dependencies",
+      "semanticCommitType": "fix"
     },
     {
       "description": "Build and lint tools do not change what ships: chore(deps)",
