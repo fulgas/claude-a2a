@@ -1,0 +1,422 @@
+@font-face {
+  font-family: "Fraunces";
+  src: url("vendor/fraunces.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  --paper: #fbf7f2;
+  --surface: #f3ece3;
+  --ink: #1f1b17;
+  --muted: #6b635b;
+  --line: #e4d9cc;
+  --accent: #b5472a;
+  --accent-ink: #8e3820;
+  --accent-wash: #f6e4dc;
+  --serif: "Fraunces", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #171412;
+    --surface: #221d1a;
+    --ink: #ede6dd;
+    --muted: #a79e94;
+    --line: #3a332d;
+    --accent: #e07a5a;
+    --accent-ink: #f0a184;
+    --accent-wash: #3a231b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #171412;
+  --surface: #221d1a;
+  --ink: #ede6dd;
+  --muted: #a79e94;
+  --line: #3a332d;
+  --accent: #e07a5a;
+  --accent-ink: #f0a184;
+  --accent-wash: #3a231b;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-padding-top: 5rem;
+}
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px / 1.65 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: var(--accent-ink);
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
+}
+a:hover {
+  color: var(--accent);
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.skip {
+  position: absolute;
+  left: -999px;
+}
+.skip:focus {
+  left: 1rem;
+  top: 1rem;
+  z-index: 10;
+  background: var(--paper);
+  padding: 0.5rem 0.75rem;
+}
+
+/* Header */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  padding: 0.75rem clamp(1rem, 4vw, 2.5rem);
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  color: var(--ink);
+  text-decoration: none;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  white-space: nowrap;
+}
+.brand .mark {
+  font-weight: 800;
+  font-size: 1.3rem;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+}
+.nav {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+}
+.nav a {
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.92rem;
+  white-space: nowrap;
+}
+.nav a:hover {
+  color: var(--ink);
+  background: var(--surface);
+}
+.nav a[aria-current="page"] {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+}
+.actions {
+  display: flex;
+  gap: 0.25rem;
+}
+.icon {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.icon:hover {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+/* Home hero */
+/* The hero spans the same columns as the document below it. */
+.hero {
+  width: min(46rem, 100% - 2 * clamp(1rem, 4vw, 2.5rem));
+  margin: 0 auto;
+  padding: clamp(3rem, 8vw, 6rem) 0 1rem;
+}
+@media (min-width: 1100px) {
+  .hero {
+    width: min(64rem, 100% - 2 * clamp(1rem, 4vw, 2.5rem));
+  }
+}
+.eyebrow {
+  margin: 0 0 0.75rem;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.hero h1 {
+  margin: 0;
+  max-width: 18ch;
+  font: 600 clamp(2.2rem, 5.5vw, 3.9rem) / 1.05 var(--serif);
+  letter-spacing: -0.025em;
+  font-variation-settings:
+    "SOFT" 50,
+    "opsz" 144;
+}
+.lede {
+  max-width: 52ch;
+  margin: 1.25rem 0 2rem;
+  color: var(--muted);
+  font-size: 1.15rem;
+}
+.install {
+  display: inline-block;
+  margin: 0 0 2rem;
+  padding: 1rem 1.25rem;
+  border-left: 3px solid var(--accent);
+}
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.facts li {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.facts strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+/* Document layout */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 46rem);
+  justify-content: center;
+  gap: 4rem;
+  padding: 2rem clamp(1rem, 4vw, 2.5rem) 4rem;
+}
+@media (min-width: 1100px) {
+  .layout {
+    grid-template-columns: minmax(0, 46rem) 14rem;
+  }
+}
+main:focus {
+  outline: none;
+}
+.toc {
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc {
+    display: block;
+    position: sticky;
+    top: 5rem;
+    align-self: start;
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
+    font-size: 0.85rem;
+  }
+}
+.toc nav {
+  display: grid;
+  gap: 0.15rem;
+  border-left: 1px solid var(--line);
+}
+.toc a {
+  padding: 0.2rem 0 0.2rem 0.9rem;
+  margin-left: -1px;
+  border-left: 1px solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+}
+.toc a.sub {
+  padding-left: 1.7rem;
+  font-size: 0.8rem;
+}
+.toc a:hover,
+.toc a.here {
+  color: var(--accent-ink);
+  border-left-color: var(--accent);
+}
+
+/* Prose */
+.prose h1,
+.prose h2,
+.prose h3 {
+  font-family: var(--serif);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+.prose h1 {
+  margin: 0 0 1.5rem;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+}
+.prose h2 {
+  margin: 3rem 0 1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  font-size: 1.65rem;
+}
+.prose h3 {
+  margin: 2rem 0 0.75rem;
+  font-size: 1.25rem;
+}
+.prose > :first-child,
+.prose > h2:first-of-type {
+  margin-top: 0;
+}
+.prose li + li {
+  margin-top: 0.3rem;
+}
+code {
+  font: 0.88em var(--mono);
+  padding: 0.12em 0.35em;
+  border-radius: 5px;
+  background: var(--surface);
+}
+pre {
+  overflow-x: auto;
+  padding: 1rem 1.15rem;
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+.table-wrap,
+.prose table {
+  display: block;
+  overflow-x: auto;
+}
+.prose table {
+  width: 100%;
+  margin: 1.5rem 0;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.prose th,
+.prose td {
+  padding: 0.55rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.prose th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.prose blockquote {
+  margin: 1.5rem 0;
+  padding: 0.25rem 1.25rem;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+.mermaid {
+  margin: 1.75rem 0;
+  padding: 1.25rem;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  text-align: center;
+}
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.edit {
+  margin-top: 3rem;
+  font-size: 0.88rem;
+}
+.foot {
+  padding: 2rem clamp(1rem, 4vw, 2.5rem);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+.foot a {
+  color: inherit;
+}
+
+/* The diagrams' classDef colours are for GitHub; here they follow the site's theme. */
+.mermaid .node :is(rect, path, polygon, circle, ellipse) {
+  stroke-width: 1.5px !important;
+}
+.mermaid .node.person :is(rect, path) {
+  fill: var(--accent-ink) !important;
+  stroke: var(--accent-ink) !important;
+}
+.mermaid .node.system :is(rect, path) {
+  fill: var(--accent) !important;
+  stroke: var(--accent-ink) !important;
+}
+.mermaid .node:is(.person, .system) :is(.nodeLabel, span, p) {
+  color: var(--paper) !important;
+}
+.mermaid .node.container :is(rect, path) {
+  fill: var(--accent-wash) !important;
+  stroke: var(--accent) !important;
+}
+.mermaid .node.external :is(rect, path) {
+  fill: var(--surface) !important;
+  stroke: var(--muted) !important;
+}
+.mermaid .node:is(.container, .external) :is(.nodeLabel, span, p) {
+  color: var(--ink) !important;
+}
+.mermaid .cluster rect {
+  fill: none !important;
+  stroke: var(--muted) !important;
+  stroke-dasharray: 5 4;
+}
+.mermaid .edgeLabel,
+.mermaid .edgeLabel p {
+  background: var(--paper) !important;
+  color: var(--muted) !important;
+  font-size: 12px;
+}
+.mermaid small {
+  opacity: 0.8;
+}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">Claude Code plugin · Agent2Agent protocol</p>
+  <h1>Let Claude talk to other agents, and let them talk to Claude.</h1>
+  <p class="lede">Call any A2A agent from a Claude Code session, or serve the session as one. JSON-RPC with SSE streaming, HTTP+JSON and gRPC, on both sides.</p>
+  <pre class="install"><code>/plugin marketplace add fulgas/claude-a2a
+/plugin install a2a@claude-a2a</code></pre>
+  <ul class="facts">
+    <li><strong>Client</strong> four tools: <code>card</code>, <code>send</code>, <code>get_task</code>, <code>cancel_task</code></li>
+    <li><strong>Server</strong> <code>/a2a-serve</code>: each incoming task runs as a subagent</li>
+    <li><strong>Safe default</strong> loopback only until you set a token</li>
+  </ul>
+</section>
+{% set doc = section %}{% include "partials/doc.html" %}
+{% endblock %}
