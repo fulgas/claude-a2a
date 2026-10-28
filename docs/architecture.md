@@ -252,7 +252,7 @@ flowchart LR
 - Every GitHub Action is pinned to a commit SHA; zizmor audits the workflows, and every workflow token has only the permissions its job needs. CodeQL analyses the code and the workflows; OpenSSF Scorecard rates the whole repository.
 - The Zola binary that builds the docs site is checked against its SHA-256 before it runs.
 - Each release rebuilds `dist/a2a.mjs` from its tag, checks it against the committed bundle, and signs SLSA build provenance for `dist/a2a.mjs`, `hooks/register.ts` and `plugin.json`. The immutable release carries GitHub's own release attestation. [SECURITY.md](https://github.com/fulgas/claude-a2a/blob/main/SECURITY.md#verifying-a-release) says how to verify both.
-- Commits and tags are signed, `main` changes only through reviewed pull requests, and releases are immutable. Secret scanning with push protection refuses a pushed credential.
+- Commits and tags are signed, `main` changes only through reviewed pull requests, and releases are immutable. Pull requests are merged with a merge commit, so the signed commits reach `main` as they were signed. Secret scanning with push protection refuses a pushed credential.
 
 **Configuration.** The plugin's `userConfig` (the server's `port`, `grpcPort`, `transports`, `host`, `name`, `apiKey`, `oidcIssuer`, `oidcAudience`, `maxConcurrentTasks`, `tasksPerMinute`, `authFailuresPerMinute` and `autoServe`; the client's `clientApiKey`, `oauthClientId`, `oauthClientSecret`, `oauthScope` and `oauthAudience`) lives in `pluginConfigs` in settings. The API keys and the OAuth secret are marked sensitive, so `/plugin` keeps them in secure storage. Flags typed after `/a2a-serve` override saved values for that run. Unset client options fall back to `A2A_API_KEY`, `A2A_TOKEN` and `A2A_OAUTH_*` in the environment.
 
@@ -274,6 +274,7 @@ flowchart LR
 | Verify JWTs, never issue them | The identity provider already manages clients, keys and rotation; the plugin is a resource server and an OAuth client | Issuing tokens in the bridge: a second identity system to secure |
 | The API key in `X-API-Key`, not `Authorization` | `Authorization: Bearer` carries the JWT; separate headers keep the two schemes from being confused | One header for both: the server would have to guess which kind a token is |
 | Asymmetric JWT algorithms only, audience required | Blocks an HMAC token signed with the issuer's public key, and a token minted for another service | Accepting the JWT's own `alg`: the algorithm-confusion attack |
+| Merge pull requests with a merge commit | The commits reach `main` with their own signatures, and GitHub signs the merge | Rebase and merge: GitHub rewrites the commits unsigned; squash: one GitHub-signed commit per pull request, losing the logical commits |
 | Limits on failed sign-ins and on tasks | A key must not be guessable, and every task runs a subagent on the session's tokens | No limits: a valid caller could exhaust the session |
 
 ## 10. Quality requirements
