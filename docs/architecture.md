@@ -213,6 +213,13 @@ flowchart LR
 - There is no TLS. Exposing the server beyond the machine needs a TLS proxy in front.
 - Claude Code's own permission prompts still apply to what the subagent does.
 
+**Supply chain.** What runs on a user's machine is the hooks module and `dist/a2a.mjs`, which bundles the bridge's dependencies, so those are guarded hardest.
+- CI rebuilds `dist/a2a.mjs` from the source and the lockfile and fails if it differs, so the committed bundle cannot carry code the source does not.
+- `npm audit` gates known vulnerabilities in the bundled dependencies, and dependency review refuses a pull request that adds a vulnerable or GPL-licensed one. `npm audit signatures` checks every package against the registry's signatures and provenance.
+- Every GitHub Action is pinned to a commit SHA; zizmor audits the workflows, and every workflow token has only the permissions its job needs. CodeQL analyses the code and the workflows; OpenSSF Scorecard rates the whole repository.
+- The Zola binary that builds the docs site is checked against its SHA-256 before it runs.
+- Commits and tags are signed, `main` changes only through reviewed pull requests, and releases are immutable. Secret scanning with push protection refuses a pushed credential.
+
 **Configuration.** The plugin's `userConfig` (`port`, `grpcPort`, `transports`, `host`, `name`, `token`, `autoServe`) lives in `pluginConfigs` in settings. The token is marked sensitive, so `/plugin` keeps it in secure storage. Flags typed after `/a2a-serve` override saved values for that run. On the client side, `A2A_TOKEN` is the default bearer token.
 
 **Errors.** Every bridge failure becomes a `{"type":"error"}` line. The plugin turns it into a tool error the model can read. A subagent that ends without an answer fails its A2A task with the reason.
