@@ -65,7 +65,7 @@ test('a bridge error comes back as a tool error', async ($, on) => {
 })
 
 test(
-  '/a2a-serve starts from saved settings, typed flags win, the token stays out of argv',
+  '/a2a-serve starts from saved settings, typed flags win, the API key stays out of argv',
   {
     options: {
       port: 9300,
@@ -73,7 +73,9 @@ test(
       transports: 'grpc',
       host: '127.0.0.1',
       name: 'Saved',
-      token: 's3cret',
+      apiKey: 's3cret',
+      oidcIssuer: 'https://id.example.test',
+      oidcAudience: 'a2a',
       autoServe: false,
     },
   },
@@ -99,11 +101,45 @@ test(
       'Saved',
       '--transports',
       'grpc',
+      '--oidc-issuer',
+      'https://id.example.test',
+      '--oidc-audience',
+      'a2a',
       '--port',
       '9500',
     ])
     expect(request.argv.join(' ')).not.toContain('s3cret')
-    expect(request.env).toEqual({ A2A_SERVE_TOKEN: 's3cret' })
+    expect(request.env).toEqual({ A2A_SERVE_API_KEY: 's3cret' })
     expect(ran.text).toContain('A2A server running')
+  },
+)
+
+test(
+  'client calls carry the saved client credentials in the environment, never in argv',
+  {
+    options: {
+      clientApiKey: 'ck',
+      oauthClientId: 'id',
+      oauthClientSecret: 'shh',
+      oauthScope: '',
+      oauthAudience: 'aud',
+    },
+  },
+  async ($, on) => {
+    let request: { argv: readonly string[]; env?: Record<string, string> } = { argv: [] }
+    on('process.spawn', async function* (_, e) {
+      request = e
+      return yield* spawned(['{"type":"result","card":{}}\n'])
+    })
+
+    await $.tool.call({ tool: 'mcp__a2a__card', url: 'http://agent.test' })
+
+    expect(request.env).toEqual({
+      A2A_API_KEY: 'ck',
+      A2A_OAUTH_CLIENT_ID: 'id',
+      A2A_OAUTH_CLIENT_SECRET: 'shh',
+      A2A_OAUTH_AUDIENCE: 'aud',
+    })
+    expect(request.argv.join(' ')).not.toContain('shh')
   },
 )
