@@ -82,6 +82,13 @@ function serveArgs(options: PluginOptions, typed: string[]) {
     '--transports',
     String(options.transports || 'all'),
   ]
+  for (const [flag, option] of [
+    ['--max-concurrent-tasks', 'maxConcurrentTasks'],
+    ['--tasks-per-minute', 'tasksPerMinute'],
+    ['--auth-failures-per-minute', 'authFailuresPerMinute'],
+  ] as const) {
+    if (options[option] !== undefined) saved.push(flag, String(options[option]))
+  }
   if (options.oidcIssuer) saved.push('--oidc-issuer', String(options.oidcIssuer))
   if (options.oidcAudience) saved.push('--oidc-audience', String(options.oidcAudience))
   const env: Record<string, string> = options.apiKey ? { A2A_SERVE_API_KEY: String(options.apiKey) } : {}
@@ -202,7 +209,7 @@ export const register: Register = (on, options) => {
         name: 'a2a-serve',
         description: 'Expose this session as an A2A agent (JSON-RPC/SSE, HTTP+JSON, gRPC)',
         argumentHint:
-          '[--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1] [--api-key K] [--oidc-issuer URL --oidc-audience AUD] [--name N]',
+          '[--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1] [--api-key K] [--oidc-issuer URL --oidc-audience AUD] [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--name N]',
       }),
       $.command.register({ name: 'a2a-stop', description: 'Stop the A2A server' }),
     ])
