@@ -19,12 +19,12 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 
 | Command | Does |
 | --- | --- |
-| `npm run build` | Bundles `bridge/a2a.mjs` into `dist/a2a.mjs`. Run after every bridge change and commit the result. |
-| `node --test bridge/a2a.test.mjs` | The bridge end to end: real servers and clients on every transport. |
-| `claude plugin test .` | The hooks module against the engine (`tests/*.test.ts`). |
-| `npx biome ci .` | Format and lint. `npx biome check --write .` fixes what it can. |
-| `claude plugin validate .` | The manifest and hooks module as the engine reads them. |
-| `npm run docs`, `npm run docs:serve` | Build the documentation site into `docs-site/dist`, or serve it on http://localhost:8000. The site is built from `README.md`, `docs/` and the policies by `docs-site/sync.mjs`; never edit `docs-site/content/`. |
+| `just check` | Everything CI runs. Run before every pull request. |
+| `just build` | Bundles `bridge/a2a.mjs` into `dist/a2a.mjs`. Run after every bridge change and commit the result. |
+| `just test` | The bridge end to end over every transport (`bridge/a2a.test.mjs`), then the hooks module against the engine (`tests/*.test.ts`). |
+| `just lint` | Biome, `claude plugin validate .` and zizmor on the workflows. `just fix` applies Biome's fixes. |
+| `just audit` | `npm audit` on what ships, and registry signatures and provenance for every package. |
+| `just docs`, `just docs-serve` | Build the documentation site into `docs-site/dist`, or serve it on http://localhost:8000. The site is built from `README.md`, `docs/` and the policies by `docs-site/sync.mjs`; never edit `docs-site/content/`. |
 
 ## Code
 

@@ -20,8 +20,8 @@ How changes to the a2a plugin are made. What the plugin does and how it is built
 
 - A change starts with a test that fails for the right reason, then the code that makes it pass.
 - The wire (transports, auth, the agent card) is tested end to end in `bridge/a2a.test.mjs`, against the real bridge. The hooks (tools, commands, options) are tested in `tests/register.test.ts`, against the engine.
-- These stay green: `node --test bridge/a2a.test.mjs`, `claude plugin test .`, `npx biome ci .`, `claude plugin validate .` and `npm run docs`.
-- `dist/a2a.mjs` is rebuilt (`npm run build`) and committed with every change to the bridge. Installs run no `npm install`, so CI fails when `dist/` does not match the source.
+- `just check` stays green: `just test`, `just lint` (Biome, `claude plugin validate`, zizmor), `just audit` and `just docs`, the same checks CI runs.
+- `dist/a2a.mjs` is rebuilt (`just build`) and committed with every change to the bridge. Installs run no `npm install`, so CI fails when `dist/` does not match the source.
 
 ## Conventional Commits
 
