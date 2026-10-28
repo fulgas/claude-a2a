@@ -289,7 +289,7 @@ async function serve(opts) {
     throw new Error(`--transports must be all, http or grpc, not "${opts.transports}"`)
   }
   // The HTTP port always serves the agent card: clients discover every transport through it.
-  // Each task runs a Claude subagent: these keep any caller, signed in or not, from flooding the session.
+  // Each task runs a Claude turn: these keep any caller, signed in or not, from flooding the session.
   const maxConcurrent = Number(opts['max-concurrent-tasks'])
   const callerTasks = perMinute(Number(opts['tasks-per-minute']))
   const authFailuresPerMinute = Number(opts['auth-failures-per-minute'])
@@ -305,7 +305,7 @@ async function serve(opts) {
   }
   const card = AgentCard.fromJSON({
     name: opts.name,
-    description: 'Claude Code exposed over A2A. Each task runs as a Claude Code subagent in the host session.',
+    description: 'Claude Code exposed over A2A. Each task runs in the host Claude Code session.',
     version: VERSION,
     supportedInterfaces: [
       endpoints.jsonrpc && { url: endpoints.jsonrpc, protocolBinding: 'JSONRPC', protocolVersion: '1.0' },
@@ -361,7 +361,7 @@ async function serve(opts) {
         bus.publish(AgentEvent.task(task))
       }
       const caller = ctx.context?.user?.userName ?? 'anonymous'
-      // Refused before a subagent starts, so a refused task costs nothing.
+      // Refused before Claude runs it, so a refused task costs nothing.
       const refusal =
         maxConcurrent > 0 && running.size >= maxConcurrent
           ? `busy: ${running.size} tasks are running, the most this agent takes at once; try again later`

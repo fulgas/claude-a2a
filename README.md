@@ -13,7 +13,7 @@ Documentation: **[fulgas.github.io/claude-a2a](https://fulgas.github.io/claude-a
 A Claude Code plugin that speaks the [A2A protocol](https://a2a-protocol.org) in both directions:
 
 - **Client.** Claude gets tools to call remote A2A agents over JSON-RPC (HTTP + SSE streaming), HTTP+JSON or gRPC.
-- **Server.** `/a2a-serve` exposes your running session as an A2A agent on all three transports. Each incoming task runs as a subagent in that session, and its answer goes back as the task's artifact.
+- **Server.** `/a2a-serve` exposes your running session as an A2A agent on all three transports. By default each incoming task arrives as a prompt in your conversation, and the reply goes back as the task's answer. It can instead run in a subagent, with a fresh context or a copy of your conversation (`taskMode`).
 
 ## Install
 
@@ -44,6 +44,7 @@ Every tool takes `transport` (`jsonrpc` \| `rest` \| `grpc`; the default is the 
            [--api-key K] [--oidc-issuer URL --oidc-audience AUD [--required-scopes "S1 S2"]]
            [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK]
            [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20] [--name N]
+           [--task-mode inline|subagent|fork]
 /a2a-stop
 ```
 
@@ -78,6 +79,7 @@ Set defaults in `/plugin`, under the plugin's options, or in `settings.json`:
 | `transports` | `all` | `all`, `http` (JSON-RPC + HTTP+JSON) or `grpc`. In `grpc` mode the HTTP port serves only the agent card, which clients need to find the gRPC endpoint |
 | `host` | `127.0.0.1` | Bind address. Anything else requires `apiKey`, `oidcIssuer` or `tlsClientCa` |
 | `name` | `Claude Code` | Agent name in the card |
+| `taskMode` | `inline` | Where a task runs: `inline`, a prompt in this conversation, one at a time; `subagent`, a subagent with a fresh context; `fork`, a subagent that starts with a copy of this conversation |
 | `apiKey` | empty | API key callers may send in `X-API-Key`. Sensitive |
 | `oidcIssuer` | empty | OpenID Connect or OAuth 2.0 issuer whose JWTs callers may send as `Authorization: Bearer` |
 | `oidcAudience` | empty | The `aud` those JWTs must carry. Required with `oidcIssuer` |
@@ -115,7 +117,9 @@ The plugin covers the security of the [A2A specification](https://a2a-protocol.o
 
 The agent card advertises whichever schemes are on, and stays public, so clients can learn what to send. A refusal is a 401 with `WWW-Authenticate` challenges, or a 403 for a token without a required scope. With `cardSigningKey`, the card is signed, and its public key is served at `/.well-known/jwks.json`. A signed-in caller gets the extended agent card, which adds the limits it will meet.
 
-**Limits.** Each task runs a Claude subagent on your tokens, so the server caps them: `maxConcurrentTasks` at once, and `tasksPerMinute` per caller (an API key, a JWT subject, or anonymous). A task over a limit fails at once, before any subagent starts, with a status that says which. A client that keeps failing to sign in is refused for the rest of the minute after `authFailuresPerMinute` attempts, so a key cannot be guessed.
+**Where tasks run.** With `taskMode` `inline` (the default), a task is a prompt in your conversation: you see it and its answer in the transcript, it waits until your own turn ends, and Claude answers it with everything the conversation holds. `fork` gives a subagent a copy of the conversation; `subagent` gives it none. **With `inline` or `fork`, anyone allowed to send tasks can ask for what is in your conversation**, pasted secrets included: use `subagent` when callers should not see it.
+
+**Limits.** Each task runs Claude on your tokens, so the server caps them: `maxConcurrentTasks` at once, and `tasksPerMinute` per caller (an API key, a JWT subject, or anonymous). A task over a limit fails at once, before any subagent starts, with a status that says which. A client that keeps failing to sign in is refused for the rest of the minute after `authFailuresPerMinute` attempts, so a key cannot be guessed.
 
 **Client.** The tools read the remote agent's card, check its signature, and meet one of its security requirements, preferring one that needs no person. An agent whose card asks for nothing gets no credential.
 
@@ -128,7 +132,7 @@ Without `tlsCert`, the server is plaintext: set it, or put a TLS proxy in front,
 
 ## How it works
 
-The plugin's hooks module can't open sockets, so a Node bridge (`dist/a2a.mjs`, built on [`@a2a-js/sdk`](https://github.com/a2aproject/a2a-js)) speaks the wire protocols. Each incoming task runs as a subagent in your session. [docs/architecture.md](docs/architecture.md) has the full picture: arc42 sections, C4 diagrams and sequence diagrams.
+The plugin's hooks module can't open sockets, so a Node bridge (`dist/a2a.mjs`, built on [`@a2a-js/sdk`](https://github.com/a2aproject/a2a-js)) speaks the wire protocols. Each incoming task runs where `taskMode` says: in your conversation, or in a subagent. [docs/architecture.md](docs/architecture.md) has the full picture: arc42 sections, C4 diagrams and sequence diagrams.
 
 ## Contributing
 

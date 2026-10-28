@@ -6,15 +6,15 @@ Fixes go into the latest release only.
 
 ## What counts
 
-The server (`/a2a-serve`) turns every incoming A2A message into a prompt that a Claude Code subagent runs with the session's tools and permissions. In scope:
+The server (`/a2a-serve`) turns every incoming A2A message into a prompt that Claude Code runs with the session's tools and permissions: in the conversation itself by default, or in a subagent. In scope:
 
 - a way to reach the server without a valid API key or JWT, or past the loopback-only default
 - a JWT the server accepts although its signature, issuer, audience or expiry is wrong
-- a way past the failed sign-in limit, or to start subagents past the task limits
-- a way to make the bridge or the plugin run something other than the subagent the task asked for
+- a way past the failed sign-in limit, or to start tasks past the task limits
+- a way to make the bridge or the plugin run something other than the prompt the task asked for
 - an API key, OAuth client secret or token leaking into argv, logs, the agent card or a tool result
 
-Out of scope: what a subagent does with a prompt it was legitimately sent. That is governed by your Claude Code permission settings.
+Out of scope: what Claude does with a prompt it was legitimately sent. That is governed by your Claude Code permission settings.
 
 ## Verifying a release
 
