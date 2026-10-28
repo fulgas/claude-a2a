@@ -1,16 +1,13 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "files": {
-    "includes": [
-      "bridge/**",
-      "hooks/**",
-      "tests/**",
-      "*.json",
-      ".claude-plugin/*.json",
-      "!.release-please-manifest.json"
-    ]
+    "includes": ["bridge/**", "hooks/**", "tests/**", "biome.json"]
   },
-  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
   "javascript": {
     "formatter": {
       "quoteStyle": "single",

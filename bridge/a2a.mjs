@@ -34,7 +34,7 @@ import express from 'express'
 
 const TRANSPORTS = { jsonrpc: 'JSONRPC', rest: 'HTTP+JSON', grpc: 'GRPC' }
 
-const out = obj => process.stdout.write(JSON.stringify(obj) + '\n')
+const out = obj => process.stdout.write(`${JSON.stringify(obj)}\n`)
 const stateName = s => taskStateToJSON(s).replace('TASK_STATE_', '').toLowerCase()
 
 function partText(part) {
