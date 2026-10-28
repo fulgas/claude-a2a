@@ -29,6 +29,19 @@
   <footer class="foot">
     <p>MIT OR Apache-2.0 · <a href="https://github.com/fulgas/claude-a2a/issues/new/choose">Report a problem</a> · Built from <a href="https://github.com/fulgas/claude-a2a">fulgas/claude-a2a</a></p>
   </footer>
+  <dialog id="zoom" aria-labelledby="zoom-title">
+    <header class="zoom-bar">
+      <h2 id="zoom-title">Diagram</h2>
+      <div class="zoom-actions">
+        <button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out (−)">−</button>
+        <output id="zoom-level" aria-live="polite">100%</output>
+        <button type="button" data-zoom="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+        <button type="button" data-zoom="fit" title="Fit (0)">Fit</button>
+        <button type="button" data-zoom="close" aria-label="Close" title="Close (Esc)">✕</button>
+      </div>
+    </header>
+    <div id="zoom-canvas" tabindex="0"></div>
+  </dialog>
   <script src="{{ get_url(path='vendor/mermaid.min.js') }}" defer></script>
   <script src="{{ get_url(path='site.js') }}" defer></script>
 </body>
