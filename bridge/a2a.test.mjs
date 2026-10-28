@@ -8,6 +8,8 @@ import net from 'node:net'
 import { after, describe, test } from 'node:test'
 import { promisify } from 'node:util'
 
+import { exportJWK, generateKeyPair, SignJWT } from 'jose'
+
 const BRIDGE = new URL('../dist/a2a.mjs', import.meta.url).pathname
 const run = promisify(execFile)
 
@@ -19,11 +21,14 @@ const freePort = () =>
     })
   })
 
-// Runs a client command; returns its last NDJSON line.
-async function client(...args) {
-  const { stdout } = await run('node', [BRIDGE, ...args], { env: { ...process.env, A2A_TOKEN: '' } }).catch(e => e)
+// Runs a client command with no credentials from the environment but `env`; returns its last NDJSON line.
+const NO_CREDENTIALS = { A2A_TOKEN: '', A2A_API_KEY: '', A2A_OAUTH_CLIENT_ID: '', A2A_OAUTH_CLIENT_SECRET: '' }
+async function clientWith(env, ...args) {
+  const options = { env: { ...process.env, ...NO_CREDENTIALS, ...env } }
+  const { stdout } = await run('node', [BRIDGE, ...args], options).catch(e => e)
   return JSON.parse(stdout.trim().split('\n').at(-1))
 }
+const client = (...args) => clientWith({}, ...args)
 
 // Starts `serve` and answers every task with "echo: <text>", as the plugin would.
 async function serve(...args) {
@@ -33,6 +38,7 @@ async function serve(...args) {
   after(() => child.kill())
 
   let buffered = ''
+  const callers = []
   const ready = new Promise((resolve, reject) => {
     child.stdout.on('data', chunk => {
       buffered += chunk
@@ -42,6 +48,7 @@ async function serve(...args) {
         if (msg.type === 'ready') resolve(msg)
         if (msg.type === 'error') reject(new Error(msg.error))
         if (msg.type === 'task') {
+          callers.push(msg.caller)
           http
             .request({ socketPath: control, path: '/reply', method: 'POST' }, res => res.resume())
             .end(JSON.stringify({ taskId: msg.taskId, ok: true, text: `echo: ${msg.text}` }))
@@ -49,7 +56,40 @@ async function serve(...args) {
       }
     })
   })
-  return { url: `http://127.0.0.1:${port}`, ready: await ready }
+  return { url: `http://127.0.0.1:${port}`, ready: await ready, callers }
+}
+
+// A stand-in OIDC provider: discovery, a key set, and a client-credentials token endpoint for client:secret.
+async function oidcProvider() {
+  const { privateKey, publicKey } = await generateKeyPair('RS256')
+  const jwk = { ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' }
+  const port = await freePort()
+  const issuer = `http://127.0.0.1:${port}`
+  const sign = ({ aud = 'a2a-test', exp = '5m', key = privateKey, alg = 'RS256', iss = issuer } = {}) =>
+    new SignJWT({ sub: 'agent-x' })
+      .setProtectedHeader({ alg, kid: 'k1' })
+      .setIssuer(iss)
+      .setAudience(aud)
+      .setIssuedAt()
+      .setExpirationTime(exp)
+      .sign(key)
+  const json = (res, status, body) =>
+    res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+  const server = http.createServer(async (req, res) => {
+    if (req.url === '/.well-known/openid-configuration') {
+      return json(res, 200, { issuer, jwks_uri: `${issuer}/jwks`, token_endpoint: `${issuer}/token` })
+    }
+    if (req.url === '/jwks') return json(res, 200, { keys: [jwk] })
+    if (req.url === '/token' && req.method === 'POST') {
+      const good = `Basic ${Buffer.from('client:secret').toString('base64')}`
+      if (req.headers.authorization !== good) return json(res, 401, { error: 'invalid_client' })
+      return json(res, 200, { access_token: await sign(), token_type: 'Bearer', expires_in: 300 })
+    }
+    json(res, 404, {})
+  })
+  await new Promise(resolve => server.listen(port, '127.0.0.1', resolve))
+  after(() => server.close())
+  return { issuer, sign }
 }
 
 describe('transports all', async () => {
@@ -113,19 +153,89 @@ describe('transports grpc', async () => {
   })
 })
 
-describe('token', async () => {
-  const { url } = await serve('--token', 's3cret')
+describe('api key', async () => {
+  const { url, callers } = await serve('--api-key', 'k3y')
+
+  test('the card asks for it in the X-API-Key header', async () => {
+    const { card } = await client('card', url)
+    assert.deepEqual(card.securitySchemes, {
+      apiKey: { apiKeySecurityScheme: { location: 'header', name: 'X-API-Key' } },
+    })
+  })
 
   for (const transport of ['jsonrpc', 'rest', 'grpc']) {
-    test(`${transport} refuses a call without the token and takes one with it`, async () => {
+    test(`${transport} refuses a call without the key or with a wrong one, and takes the right one`, async () => {
       assert.match((await client('send', url, 'x', '--transport', transport)).error, /401|unauthorized/i)
-      const r = await client('send', url, 'x', '--transport', transport, '--token', 's3cret')
+      assert.match(
+        (await client('send', url, 'x', '--transport', transport, '--api-key', 'nope')).error,
+        /401|unauthorized/i,
+      )
+      const r = await clientWith({ A2A_API_KEY: 'k3y' }, 'send', url, 'x', '--transport', transport)
       assert.equal(r.state, 'completed')
+      assert.equal(callers.at(-1), 'api-key')
     })
   }
 
-  test('a non-loopback host without a token is refused', async () => {
+  test('a non-loopback host with no API key and no OIDC issuer is refused', async () => {
     const r = await client('serve', '--control', '/tmp/a2a-unused.sock', '--host', '0.0.0.0')
     assert.match(r.error, /refusing to listen/)
+  })
+})
+
+describe('oidc', async () => {
+  const provider = await oidcProvider()
+  const { url, callers } = await serve('--oidc-issuer', provider.issuer, '--oidc-audience', 'a2a-test')
+
+  test('the card names the OIDC discovery document', async () => {
+    const { card } = await client('card', url)
+    assert.equal(
+      card.securitySchemes.oidc.openIdConnectSecurityScheme.openIdConnectUrl,
+      `${provider.issuer}/.well-known/openid-configuration`,
+    )
+  })
+
+  for (const transport of ['jsonrpc', 'rest', 'grpc']) {
+    test(`${transport} takes a valid JWT and names its subject as the caller`, async () => {
+      assert.match((await client('send', url, 'x', '--transport', transport)).error, /401|unauthorized/i)
+      const r = await client('send', url, 'x', '--transport', transport, '--token', await provider.sign())
+      assert.equal(r.state, 'completed')
+      assert.equal(callers.at(-1), 'oidc:agent-x')
+    })
+  }
+
+  test('a JWT for another audience, an expired one, one from another issuer and an HMAC one are refused', async () => {
+    const expired = Math.floor(Date.now() / 1000) - 3600
+    const hmac = new TextEncoder().encode('a-shared-secret-of-at-least-32-bytes!')
+    for (const token of [
+      await provider.sign({ aud: 'someone-else' }),
+      await provider.sign({ exp: expired }),
+      await provider.sign({ iss: 'https://evil.test' }),
+      await provider.sign({ key: hmac, alg: 'HS256' }),
+    ]) {
+      assert.match((await client('send', url, 'x', '--token', token)).error, /401|unauthorized/i)
+    }
+  })
+
+  test('the client fetches a token with the client-credentials grant', async () => {
+    const ok = await clientWith({ A2A_OAUTH_CLIENT_ID: 'client', A2A_OAUTH_CLIENT_SECRET: 'secret' }, 'send', url, 'x')
+    assert.equal(ok.state, 'completed')
+    const bad = await clientWith({ A2A_OAUTH_CLIENT_ID: 'client', A2A_OAUTH_CLIENT_SECRET: 'wrong' }, 'send', url, 'x')
+    assert.match(bad.error, /token endpoint .*401 invalid_client/)
+  })
+
+  test('an issuer without an audience is refused at startup', async () => {
+    const r = await client('serve', '--control', '/tmp/a2a-unused.sock', '--oidc-issuer', provider.issuer)
+    assert.match(r.error, /needs --oidc-audience/)
+  })
+})
+
+describe('api key and oidc together', async () => {
+  const provider = await oidcProvider()
+  const { url } = await serve('--api-key', 'k3y', '--oidc-issuer', provider.issuer, '--oidc-audience', 'a2a-test')
+
+  test('either credential passes', async () => {
+    assert.equal((await client('send', url, 'x', '--api-key', 'k3y')).state, 'completed')
+    assert.equal((await client('send', url, 'x', '--token', await provider.sign())).state, 'completed')
+    assert.match((await client('send', url, 'x')).error, /401|unauthorized/i)
   })
 })
