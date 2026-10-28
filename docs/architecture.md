@@ -34,18 +34,21 @@ flowchart TB
   plugin["<b>a2a plugin</b><br/><small>[Software system]</small><br/>A2A client tools and an A2A server"]
   remote["<b>Remote A2A agent</b><br/><small>[Software system]</small><br/>Any agent that speaks A2A"]
   caller["<b>Calling A2A agent</b><br/><small>[Software system]</small><br/>Any A2A client that sends tasks here"]
+  idp["<b>Identity provider</b><br/><small>[Software system, optional]</small><br/>Your OIDC / OAuth2 provider: Keycloak, Auth0, Entra, Okta"]
   user -- "Prompts, /a2a-serve, /a2a-stop" --> claude
   claude -- "Loads it, calls its tools, runs its hooks" --> plugin
   plugin -- "Runs each incoming task as a subagent" --> claude
   plugin -- "Sends messages, reads tasks<br/>JSON-RPC+SSE · HTTP+JSON · gRPC" --> remote
-  caller -- "Sends tasks<br/>JSON-RPC+SSE · HTTP+JSON · gRPC" --> plugin
+  caller -- "Sends tasks with an API key or a JWT<br/>JSON-RPC+SSE · HTTP+JSON · gRPC" --> plugin
+  caller -. "Gets a JWT" .-> idp
+  plugin -. "Reads discovery and keys to verify JWTs,<br/>gets tokens by client credentials" .-> idp
   classDef person fill:#8E3820,stroke:#6E2A17,color:#fff
   classDef system fill:#B5472A,stroke:#8E3820,color:#fff
   classDef container fill:#F6E4DC,stroke:#B5472A,color:#1F1B17
   classDef external fill:#EDE6DD,stroke:#8A8178,color:#1F1B17
   class user person
   class plugin system
-  class claude,remote,caller external
+  class claude,remote,caller,idp external
 ```
 
 | Neighbour | Exchanges |
@@ -53,7 +56,8 @@ flowchart TB
 | Developer | Asks Claude to talk to an agent; starts and stops the server; sets the plugin's options |
 | Claude Code | Loads the plugin, offers its tools to the model, runs subagents, enforces permissions |
 | Remote A2A agent | Agent card, messages, tasks, artifacts |
-| Calling A2A agent | The same, in the other direction |
+| Calling A2A agent | The same, in the other direction, with an API key or a JWT when the server asks for one |
+| Identity provider | Optional. Its discovery document and key set, which the server verifies JWTs against; tokens for the client, by the client-credentials grant. The plugin never issues tokens |
 
 ## 4. Solution strategy
 
@@ -70,6 +74,7 @@ flowchart TB
 flowchart TB
   claude["<b>Claude Code engine</b><br/><small>[Software system]</small><br/>Model, subagents, permissions"]
   other["<b>Other A2A agents</b><br/><small>[Software system]</small>"]
+  idp["<b>Identity provider</b><br/><small>[Software system, optional]</small>"]
   subgraph plugin["a2a plugin"]
     mod["<b>Hooks module</b><br/><small>[Container: TypeScript, hooks/register.ts]</small><br/>Tools, slash commands, subagent routing"]
     bridge["<b>Bridge</b><br/><small>[Container: Node 20+, dist/a2a.mjs]</small><br/>A2A client and server on @a2a-js/sdk"]
@@ -81,12 +86,13 @@ flowchart TB
   mod -- "POST /reply" --> socket
   socket -- "Resolves the waiting task" --> bridge
   bridge <-- "A2A<br/>JSON-RPC+SSE · HTTP+JSON · gRPC" --> other
+  bridge -. "Discovery, key set,<br/>client-credentials token" .-> idp
   classDef person fill:#8E3820,stroke:#6E2A17,color:#fff
   classDef system fill:#B5472A,stroke:#8E3820,color:#fff
   classDef container fill:#F6E4DC,stroke:#B5472A,color:#1F1B17
   classDef external fill:#EDE6DD,stroke:#8A8178,color:#1F1B17
   class mod,bridge,socket container
-  class claude,other external
+  class claude,other,idp external
 ```
 
 ### Level 3: components
@@ -107,9 +113,18 @@ flowchart LR
     grpc["<b>gRPC server</b><br/><small>[Component: grpc-js]</small><br/>A2AService, API key or JWT check in metadata"]
     exec["<b>Executor</b><br/><small>[Component]</small><br/>Publishes a task, prints it, waits for /reply"]
     ctl["<b>Control server</b><br/><small>[Component]</small><br/>HTTP on the Unix socket: /reply"]
+    auth["<b>Authenticator</b><br/><small>[Component: auth.mjs, jose]</small><br/>API key, or a JWT checked against the issuer's key set"]
+    limits["<b>Limits</b><br/><small>[Component: express-rate-limit, perMinute]</small><br/>Failed sign-ins, tasks at once, tasks a minute per caller"]
+    creds["<b>Client credentials</b><br/><small>[Component: auth.mjs]</small><br/>What the remote card asks for: API key header, bearer, client-credentials token"]
   end
   tools -- "argv, NDJSON back" --> cli
   cmds -- "Starts serve" --> router
+  http -- "checks" --> auth
+  grpc -- "checks" --> auth
+  http -- "counts failures" --> limits
+  grpc -- "counts failures" --> limits
+  exec -- "tasks at once, per caller" --> limits
+  cli -- "headers" --> creds
   http --> exec
   grpc --> exec
   http -- "serves" --> card
@@ -120,13 +135,14 @@ flowchart LR
   classDef system fill:#B5472A,stroke:#8E3820,color:#fff
   classDef container fill:#F6E4DC,stroke:#B5472A,color:#1F1B17
   classDef external fill:#EDE6DD,stroke:#8A8178,color:#1F1B17
-  class reg,tools,cmds,router,done,cli,card,http,grpc,exec,ctl container
+  class reg,tools,cmds,router,done,cli,card,http,grpc,exec,ctl,auth,limits,creds container
 ```
 
 | Building block | Source |
 | --- | --- |
 | Hooks module | `hooks/register.ts` |
 | Bridge | `bridge/a2a.mjs`, bundled to `dist/a2a.mjs` |
+| Authentication and limits | `bridge/auth.mjs` |
 | Plugin manifest and options | `.claude-plugin/plugin.json` |
 | Marketplace entry | `.claude-plugin/marketplace.json` |
 
@@ -141,13 +157,18 @@ sequenceDiagram
   participant P as Hooks module
   participant B as Bridge (a2a.mjs send)
   participant R as Remote agent
+  participant I as Identity provider
 
   M->>P: tool call mcp__a2a__send {url, message, transport?}
   P->>B: $.process.spawn(node a2a.mjs send ...)
   B->>R: GET /.well-known/agent-card.json
-  R-->>B: agent card (interfaces)
+  R-->>B: agent card (interfaces, security schemes)
   Note over B: picks the named transport,<br/>or fails if the card lacks it
-  B->>R: SendStreamingMessage
+  opt the card asks for OAuth2 and a client id and secret are set
+    B->>I: client-credentials grant at the card's token endpoint
+    I-->>B: access token (JWT)
+  end
+  B->>R: SendStreamingMessage, with the API key header or the bearer token the card asks for
   loop while the task runs
     R-->>B: status / artifact update
     B-->>P: {"type":"progress"} line
@@ -169,8 +190,14 @@ sequenceDiagram
   participant S as Subagent
 
   C->>B: SendMessage (JSON-RPC, REST or gRPC, with an API key or a JWT if required)
-  B-->>C: task (working)
-  B->>P: {"type":"task", taskId, text} line
+  alt no valid API key or JWT
+    B-->>C: 401 (429 after too many failures in a minute)
+  else over maxConcurrentTasks or the caller's tasksPerMinute
+    B-->>C: task failed, busy or rate limit, before any subagent starts
+  else signed in and within the limits
+    B-->>C: task (working)
+  end
+  B->>P: {"type":"task", taskId, caller, text} line
   P->>E: $.agent.spawn({prompt: text})
   E->>S: runs with the session's tools and permissions
   S-->>E: final answer
@@ -181,7 +208,7 @@ sequenceDiagram
 
 ### Starting the server
 
-`/a2a-serve` merges the saved options with the typed flags (typed flags win) and spawns `a2a.mjs serve`. The API key travels in the environment as `A2A_SERVE_API_KEY`. With an OIDC issuer, the bridge first reads its discovery document. It then binds the HTTP port and, unless `transports` is `http`, the gRPC port, then prints `{"type":"ready"}` with the endpoints. The plugin shows them in the status line. `/a2a-stop`, or the end of the session, ends the spawn loop, which kills the bridge.
+`/a2a-serve` merges the saved options with the typed flags (typed flags win) and spawns `a2a.mjs serve`. The API key travels in the environment as `A2A_SERVE_API_KEY`. With an OIDC issuer, the bridge first reads its discovery document, checks its `issuer`, and from then on fetches the key set as tokens need it. An issuer that cannot be reached stops the start with an error. It then binds the HTTP port and, unless `transports` is `http`, the gRPC port, then prints `{"type":"ready"}` with the endpoints. The plugin shows them in the status line. `/a2a-stop`, or the end of the session, ends the spawn loop, which kills the bridge.
 
 ## 7. Deployment view
 
@@ -198,6 +225,8 @@ flowchart LR
   end
   caller["Calling agent"] -- "HTTP :41241 (card, JSON-RPC+SSE, REST)" --> bridge
   caller -- "gRPC :41242" --> bridge
+  idp["Identity provider (optional)"]
+  bridge -. "HTTPS: discovery, key set, tokens" .-> idp
 ```
 
 - One bridge process per session that runs `/a2a-serve`. Client calls start a short-lived bridge each.
@@ -241,6 +270,11 @@ flowchart LR
 | Unix control socket for answers | `$.process.spawn` stdin is one-shot; `$.http.fetch` can use a socket path | A TCP port: reachable by other local users |
 | Subagent per task | Isolated context per task; the session stays usable | Prompting the main conversation: interleaves with the user's own work |
 | HTTP card even in gRPC-only mode | A2A discovery is the HTTP card | gRPC-only with no card: clients cannot find it |
+| API key and OIDC JWT, either one passing | An API key is enough between two known parties; a JWT from an existing identity provider gives each caller a name and an expiry without the plugin keeping accounts | One shared static token: no caller identity, no expiry; mTLS: certificates to issue and rotate |
+| Verify JWTs, never issue them | The identity provider already manages clients, keys and rotation; the plugin is a resource server and an OAuth client | Issuing tokens in the bridge: a second identity system to secure |
+| The API key in `X-API-Key`, not `Authorization` | `Authorization: Bearer` carries the JWT; separate headers keep the two schemes from being confused | One header for both: the server would have to guess which kind a token is |
+| Asymmetric JWT algorithms only, audience required | Blocks an HMAC token signed with the issuer's public key, and a token minted for another service | Accepting the JWT's own `alg`: the algorithm-confusion attack |
+| Limits on failed sign-ins and on tasks | A key must not be guessable, and every task runs a subagent on the session's tokens | No limits: a valid caller could exhaust the session |
 
 ## 10. Quality requirements
 
@@ -260,7 +294,10 @@ flowchart LR
 - **No memory across tasks.** Each task is a fresh subagent, so a follow-up in the same A2A context does not see the earlier turns.
 - **Final answer only.** A caller sees the answer when the subagent finishes, not its progress.
 - **Session-bound server.** The server lives as long as the session. There is no daemon mode.
-- **No TLS and no push notifications** on the server side.
+- **No TLS and no push notifications** on the server side. Without a TLS proxy, an API key or a JWT can be read on the wire.
+- **No JWT revocation.** A JWT is accepted until its `exp`; the server does not call the provider's introspection endpoint. Keep token lifetimes short.
+- **The identity provider at start.** With an OIDC issuer, the server does not start while the issuer's discovery document cannot be read.
+- **Limits per process.** The limit counters live in the bridge's memory: they start over with the server, and two servers do not share them.
 - **Early-access plugin API.** Claude Code's hooks-module API may change between releases. CI pins the Claude Code version it validates against.
 
 ## 12. Glossary
@@ -275,3 +312,9 @@ flowchart LR
 | Bridge | `dist/a2a.mjs`, the Node process that speaks A2A for the plugin |
 | Hooks module | `hooks/register.ts`, the plugin code Claude Code runs |
 | Control socket | The Unix socket the plugin uses to answer the bridge |
+| API key | A shared secret a caller sends in `X-API-Key` |
+| Identity provider | The service that issues tokens and publishes the keys to verify them: Keycloak, Auth0, Entra, Okta |
+| OIDC | OpenID Connect: how a provider publishes its discovery document (`/.well-known/openid-configuration`) and key set |
+| JWT | A signed token from the identity provider. The server checks its signature, `iss`, `aud` and `exp`; its `sub` names the caller |
+| Client-credentials grant | The OAuth2 flow in which a service trades its client id and secret for an access token, with no person involved |
+| Resource server | A service that accepts tokens an identity provider issued, without issuing any itself: the role the server plays |
