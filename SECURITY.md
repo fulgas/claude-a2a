@@ -13,3 +13,18 @@ The server (`/a2a-serve`) turns every incoming A2A message into a prompt that a 
 - a token leaking into argv, logs, the agent card or a tool result
 
 Out of scope: what a subagent does with a prompt it was legitimately sent. That is governed by your Claude Code permission settings.
+
+## Verifying a release
+
+Releases are immutable, and each one carries two signed attestations you can check with the [GitHub CLI](https://cli.github.com):
+
+```
+# The release and its tag are the ones GitHub published
+gh release verify v0.1.0 --repo fulgas/claude-a2a
+
+# The files the plugin runs were built from that tag by this repository's release workflow (SLSA build provenance)
+gh attestation verify dist/a2a.mjs --repo fulgas/claude-a2a
+gh attestation verify hooks/register.ts --repo fulgas/claude-a2a
+```
+
+Run the second pair from a checkout of the tag, or from the plugin's installed folder.
