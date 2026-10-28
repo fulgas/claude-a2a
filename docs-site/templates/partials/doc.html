@@ -1,0 +1,15 @@
+<div class="layout">
+  <main id="main" tabindex="-1">
+    <article class="prose">
+      {% if doc.path != "/" %}<h1>{{ doc.title }}</h1>{% endif %}
+      {{ doc.content | safe }}
+    </article>
+    <p class="edit"><a href="https://github.com/fulgas/claude-a2a/edit/main/{{ doc.extra.source }}">Edit this page on GitHub</a></p>
+  </main>
+  {% if doc.toc %}
+  <aside class="toc" aria-label="On this page">
+    <p class="eyebrow">On this page</p>
+    <nav>{% for h in doc.toc %}<a href="#{{ h.id }}">{{ h.title }}</a>{% for s in h.children %}<a class="sub" href="#{{ s.id }}">{{ s.title }}</a>{% endfor %}{% endfor %}</nav>
+  </aside>
+  {% endif %}
+</div>

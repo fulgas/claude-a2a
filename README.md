@@ -1,5 +1,7 @@
 # a2a: Agent2Agent for Claude Code
 
+Documentation: **[fulgas.github.io/claude-a2a](https://fulgas.github.io/claude-a2a/)**
+
 A Claude Code plugin that speaks the [A2A protocol](https://a2a-protocol.org) in both directions:
 
 - **Client.** Claude gets tools to call remote A2A agents over JSON-RPC (HTTP + SSE streaming), HTTP+JSON or gRPC.

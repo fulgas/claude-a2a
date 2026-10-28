@@ -33,7 +33,8 @@ claude --plugin-dir .      # a session with your working copy loaded
    claude plugin validate .
    ```
 5. Write commit messages in [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) form, one logical change per commit: `fix(server): refuse gRPC calls without the token`. The type decides the next version: `fix` is a patch, `feat` a minor, and a `BREAKING CHANGE:` footer a major. Sign each commit (`git commit -S`) and sign it off (`git commit -s`), which certifies the [Developer Certificate of Origin](https://developercertificate.org). `main` accepts only signed, signed-off commits.
-6. Open a pull request that says what changed for the person using the plugin, and why.
+6. For a change to the docs, `npm run docs:serve` shows the site at http://localhost:8000 as it will appear on [fulgas.github.io/claude-a2a](https://fulgas.github.io/claude-a2a/).
+7. Open a pull request that says what changed for the person using the plugin, and why.
 
 ## Releases
 

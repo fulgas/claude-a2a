@@ -1,0 +1,12 @@
+# The documentation site: sync.mjs writes content/ from the repository's Markdown, Zola builds it into dist/.
+base_url = "http://localhost:8000"
+title = "a2a for Claude Code"
+description = "A Claude Code plugin that speaks the Agent2Agent protocol: call A2A agents, and serve a session as one."
+output_dir = "dist"
+compile_sass = false
+build_search_index = false
+
+[markdown]
+smart_punctuation = true
+render_emoji = false
+external_links_target_blank = false

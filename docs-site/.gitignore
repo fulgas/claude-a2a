@@ -1,0 +1,4 @@
+content/
+dist/
+.zola/
+static/vendor/

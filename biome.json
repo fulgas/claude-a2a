@@ -1,7 +1,15 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "files": {
-    "includes": ["bridge/**", "hooks/**", "tests/**", "biome.json"]
+    "includes": [
+      "bridge/**",
+      "hooks/**",
+      "tests/**",
+      "docs-site/*.mjs",
+      "docs-site/static/*.js",
+      "docs-site/static/*.css",
+      "biome.json"
+    ]
   },
   "formatter": {
     "indentStyle": "space",

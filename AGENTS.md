@@ -23,6 +23,7 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 | `claude plugin test .` | The hooks module against the engine (`tests/*.test.ts`). |
 | `npx biome ci .` | Format and lint. `npx biome check --write .` fixes what it can. |
 | `claude plugin validate .` | The manifest and hooks module as the engine reads them. |
+| `npm run docs`, `npm run docs:serve` | Build the documentation site into `docs-site/dist`, or serve it on http://localhost:8000. The site is built from `README.md`, `docs/` and the policies by `docs-site/sync.mjs`; never edit `docs-site/content/`. |
 
 ## Code
 

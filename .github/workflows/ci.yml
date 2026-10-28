@@ -51,3 +51,5 @@ jobs:
         run: npx biome ci .
       - name: The plugin manifest and hooks module, as the engine reads them
         run: npx -y @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} plugin validate .
+      - name: The documentation site builds
+        run: npm run docs
