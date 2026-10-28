@@ -1,15 +1,19 @@
 // A2A bridge for the Claude Code `a2a` plugin.
 //
 // Client:  a2a card   <url>
-//          a2a send   <url> <text> [--transport jsonrpc|rest|grpc] [--context-id ID] [--task-id ID] [--token T]
-//          a2a get    <url> <taskId> [--transport ...] [--token T]
-//          a2a cancel <url> <taskId> [--transport ...] [--token T]
+//          a2a send   <url> <text> [--transport jsonrpc|rest|grpc] [--context-id ID] [--task-id ID]
+//          a2a get    <url> <taskId> [--transport ...]
+//          a2a cancel <url> <taskId> [--transport ...]
+//          Credentials, as the agent card asks for them: [--api-key K] (or $A2A_API_KEY), [--token T] (or $A2A_TOKEN),
+//          or $A2A_OAUTH_CLIENT_ID and $A2A_OAUTH_CLIENT_SECRET (with $A2A_OAUTH_SCOPE, $A2A_OAUTH_AUDIENCE) to
+//          fetch a token with the client-credentials grant.
 // Server:  a2a serve  --control <unix socket> [--host 127.0.0.1] [--port 41241] [--grpc-port 41242]
-//                     [--transports all|http|grpc] [--token T (or $A2A_SERVE_TOKEN)]
+//                     [--transports all|http|grpc] [--api-key K (or $A2A_SERVE_API_KEY)]
+//                     [--oidc-issuer URL --oidc-audience AUD]
 //
 // Output is NDJSON on stdout. `serve` prints {"type":"task",...} for every incoming
 // task and waits for the plugin to POST the answer to /reply on the control socket.
-import { randomUUID, timingSafeEqual } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
 import http from 'node:http'
 import { parseArgs } from 'node:util'
@@ -26,11 +30,13 @@ import {
 } from '@a2a-js/sdk'
 import { ClientFactory, ClientFactoryOptions, JsonRpcTransportFactory, RestTransportFactory } from '@a2a-js/sdk/client'
 import { GrpcTransportFactory } from '@a2a-js/sdk/client/grpc'
-import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore, UnauthenticatedUser } from '@a2a-js/sdk/server'
-import { agentCardHandler, jsonRpcHandler, restHandler, UserBuilder } from '@a2a-js/sdk/server/express'
+import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server'
+import { agentCardHandler, jsonRpcHandler, restHandler } from '@a2a-js/sdk/server/express'
 import { A2AService, grpcService } from '@a2a-js/sdk/server/grpc'
 import * as grpc from '@grpc/grpc-js'
 import express from 'express'
+
+import { clientHeaders, serverAuth } from './auth.mjs'
 
 // Read at run time, so a release bumps package.json alone and dist/ stays as built.
 // From bridge/ and from dist/ alike, package.json is one folder up.
@@ -62,16 +68,28 @@ async function connect(url, transport) {
     }),
   )
   const client = await factory.createFromUrl(url)
+  const card = await client.getAgentCard()
   // The SDK treats the choice as a preference; a named transport the agent lacks is an error.
-  const offered = (await client.getAgentCard()).supportedInterfaces.map(i => i.protocolBinding)
+  const offered = card.supportedInterfaces.map(i => i.protocolBinding)
   if (preferred && !offered.includes(preferred[0])) {
     throw new Error(`agent does not offer ${transport}; it offers ${offered.join(', ')}`)
   }
-  return client
+  return { client, card }
 }
 
-const callOptions = (token = process.env.A2A_TOKEN) =>
-  token ? { serviceParameters: { authorization: `Bearer ${token}` } } : undefined
+// The credentials every call to this agent carries, as its card asks for them.
+async function callOptions(card, opts) {
+  const env = process.env
+  const serviceParameters = await clientHeaders(card, {
+    apiKey: opts['api-key'] || env.A2A_API_KEY || undefined,
+    token: opts.token || env.A2A_TOKEN || undefined,
+    clientId: env.A2A_OAUTH_CLIENT_ID,
+    clientSecret: env.A2A_OAUTH_CLIENT_SECRET,
+    scope: env.A2A_OAUTH_SCOPE,
+    audience: env.A2A_OAUTH_AUDIENCE,
+  })
+  return serviceParameters && { serviceParameters }
+}
 
 function summarizeTask(task) {
   return {
@@ -84,7 +102,7 @@ function summarizeTask(task) {
 }
 
 async function send(url, text, opts) {
-  const client = await connect(url, opts.transport)
+  const { client, card } = await connect(url, opts.transport)
   const request = SendMessageRequest.fromJSON({
     message: {
       messageId: randomUUID(),
@@ -97,7 +115,7 @@ async function send(url, text, opts) {
   const result = { taskId: '', contextId: '', state: '', status: '', artifacts: [], messages: [] }
   const artifacts = new Map()
 
-  for await (const ev of client.sendMessageStream(request, callOptions(opts.token))) {
+  for await (const ev of client.sendMessageStream(request, await callOptions(card, opts))) {
     const p = ev.payload
     if (!p) continue
     if (p.$case === 'message') {
@@ -132,29 +150,49 @@ async function client(cmd, positionals, opts) {
   const [url, arg] = positionals
   if (!url) throw new Error(`usage: a2a ${cmd} <url> ...`)
   if (cmd === 'card') {
-    const c = await connect(url, opts.transport)
-    return out({ type: 'result', card: AgentCard.toJSON(await c.getAgentCard()) })
+    const { card } = await connect(url, opts.transport)
+    return out({ type: 'result', card: AgentCard.toJSON(card) })
   }
   if (!arg) throw new Error(`usage: a2a ${cmd} <url> <${cmd === 'send' ? 'text' : 'taskId'}>`)
   if (cmd === 'send') return send(url, arg, opts)
-  const c = await connect(url, opts.transport)
+  const { client: c, card } = await connect(url, opts.transport)
+  const options = await callOptions(card, opts)
   const task =
     cmd === 'get'
-      ? await c.getTask(GetTaskRequest.fromJSON({ id: arg }), callOptions(opts.token))
-      : await c.cancelTask(CancelTaskRequest.fromJSON({ id: arg }), callOptions(opts.token))
+      ? await c.getTask(GetTaskRequest.fromJSON({ id: arg }), options)
+      : await c.cancelTask(CancelTaskRequest.fromJSON({ id: arg }), options)
   out({ type: 'result', ...summarizeTask(task) })
 }
 
 // ---------- server ----------
 
-function serve(opts) {
+// The authenticated caller, as the SDK carries it to the executor.
+class Caller {
+  constructor(name) {
+    this.name = name
+  }
+  get isAuthenticated() {
+    return this.name !== 'anonymous'
+  }
+  get userName() {
+    return this.name
+  }
+}
+
+async function serve(opts) {
   const host = opts.host
   const port = Number(opts.port)
   const grpcPort = Number(opts['grpc-port'])
-  const token = opts.token || process.env.A2A_SERVE_TOKEN
+  const auth = await serverAuth({
+    apiKey: opts['api-key'] || process.env.A2A_SERVE_API_KEY || undefined,
+    issuer: opts['oidc-issuer'],
+    audience: opts['oidc-audience'],
+  })
   const isLoopback = ['127.0.0.1', 'localhost', '::1'].includes(host)
-  if (!isLoopback && !token) {
-    throw new Error(`refusing to listen on ${host} without --token: incoming tasks run Claude Code with your tools`)
+  if (!isLoopback && !auth.isConfigured) {
+    throw new Error(
+      `refusing to listen on ${host} without --api-key or --oidc-issuer: incoming tasks run Claude Code with your tools`,
+    )
   }
   if (!opts.control) throw new Error('--control <unix socket path> is required')
   if (!['all', 'http', 'grpc'].includes(opts.transports)) {
@@ -163,13 +201,6 @@ function serve(opts) {
   // The HTTP port always serves the agent card: clients discover every transport through it.
   const withHttp = opts.transports !== 'grpc'
   const withGrpc = opts.transports !== 'http'
-
-  const tokenOk = header => {
-    if (!token) return true
-    const want = Buffer.from(`Bearer ${token}`)
-    const got = Buffer.from(String(header ?? ''))
-    return got.length === want.length && timingSafeEqual(got, want)
-  }
 
   const base = `http://${host}:${port}`
   const endpoints = {
@@ -197,8 +228,9 @@ function serve(opts) {
         tags: ['coding', 'claude'],
       },
     ],
-    securitySchemes: token ? { bearer: { httpAuthSecurityScheme: { scheme: 'Bearer' } } } : undefined,
-    securityRequirements: token ? [{ schemes: { bearer: { list: [] } } }] : undefined,
+    // Either scheme passes: the card lists each as a requirement of its own.
+    securitySchemes: auth.securitySchemes,
+    securityRequirements: auth.securityRequirements,
   })
 
   // taskId -> resolve({ ok, text }) for the plugin's answer
@@ -226,7 +258,8 @@ function serve(opts) {
       }
       bus.publish(status(taskId, contextId, 'TASK_STATE_WORKING'))
       const answer = new Promise(resolve => pending.set(taskId, resolve))
-      out({ type: 'task', taskId, contextId, text: partsText(userMessage.parts) })
+      const caller = ctx.context?.user?.userName ?? 'anonymous'
+      out({ type: 'task', taskId, contextId, caller, text: partsText(userMessage.parts) })
       const { ok, text, canceled } = await answer
       pending.delete(taskId)
       if (!canceled) {
@@ -255,12 +288,22 @@ function serve(opts) {
   const requestHandler = new DefaultRequestHandler(card, new InMemoryTaskStore(), executor)
 
   const app = express()
-  const auth = (req, res, nextMw) =>
-    tokenOk(req.headers.authorization) ? nextMw() : res.status(401).type('text').send('unauthorized')
-  app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => card }))
+  // The agent card stays public: it is how clients learn which credentials to send. The handler sends what the
+  // provider returns as is, so it gets the card's wire JSON, not the SDK's in-memory form.
+  const authenticated = (req, res, nextMw) =>
+    auth.authenticate(req.headers).then(
+      caller => {
+        if (!caller) return res.status(401).type('text').send('unauthorized')
+        req.caller = caller
+        nextMw()
+      },
+      err => nextMw(err),
+    )
+  const userBuilder = async req => new Caller(req.caller)
+  app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(card) }))
   if (withHttp) {
-    app.use('/a2a/jsonrpc', auth, jsonRpcHandler({ requestHandler, userBuilder: UserBuilder.noAuthentication }))
-    app.use('/a2a/rest', auth, restHandler({ requestHandler, userBuilder: UserBuilder.noAuthentication }))
+    app.use('/a2a/jsonrpc', authenticated, jsonRpcHandler({ requestHandler, userBuilder }))
+    app.use('/a2a/rest', authenticated, restHandler({ requestHandler, userBuilder }))
   }
   const httpServer = app.listen(port, host)
   const httpUp = new Promise(resolve => httpServer.once('listening', resolve))
@@ -271,10 +314,13 @@ function serve(opts) {
     grpcService({
       requestHandler,
       userBuilder: async call => {
-        if (!tokenOk(call.metadata.get('authorization')[0])) {
-          throw Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
-        }
-        return new UnauthenticatedUser()
+        const header = name => call.metadata.get(name)[0]?.toString()
+        const caller = await auth.authenticate({
+          'x-api-key': header('x-api-key'),
+          authorization: header('authorization'),
+        })
+        if (!caller) throw Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
+        return new Caller(caller)
       },
     }),
   )
@@ -332,6 +378,9 @@ const { positionals, values } = parseArgs({
     'context-id': { type: 'string' },
     'task-id': { type: 'string' },
     token: { type: 'string' },
+    'api-key': { type: 'string' },
+    'oidc-issuer': { type: 'string' },
+    'oidc-audience': { type: 'string' },
     host: { type: 'string', default: '127.0.0.1' },
     port: { type: 'string', default: '41241' },
     'grpc-port': { type: 'string', default: '41242' },
@@ -349,7 +398,7 @@ process.on('uncaughtException', err => {
 })
 
 try {
-  if (cmd === 'serve') serve(values)
+  if (cmd === 'serve') await serve(values)
   else if (['card', 'send', 'get', 'cancel'].includes(cmd)) await client(cmd, rest, values)
   else throw new Error('usage: a2a card|send|get|cancel|serve ...')
 } catch (err) {
