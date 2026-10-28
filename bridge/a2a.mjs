@@ -10,7 +10,7 @@
 // Output is NDJSON on stdout. `serve` prints {"type":"task",...} for every incoming
 // task and waits for the plugin to POST the answer to /reply on the control socket.
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { rmSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import http from 'node:http'
 import { parseArgs } from 'node:util'
 import {
@@ -31,6 +31,10 @@ import { agentCardHandler, jsonRpcHandler, restHandler, UserBuilder } from '@a2a
 import { A2AService, grpcService } from '@a2a-js/sdk/server/grpc'
 import * as grpc from '@grpc/grpc-js'
 import express from 'express'
+
+// Read at run time, so a release bumps package.json alone and dist/ stays as built.
+// From bridge/ and from dist/ alike, package.json is one folder up.
+const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
 const TRANSPORTS = { jsonrpc: 'JSONRPC', rest: 'HTTP+JSON', grpc: 'GRPC' }
 
@@ -176,7 +180,7 @@ function serve(opts) {
   const card = AgentCard.fromJSON({
     name: opts.name,
     description: 'Claude Code exposed over A2A. Each task runs as a Claude Code subagent in the host session.',
-    version: '0.1.0', // x-release-please-version
+    version: VERSION,
     supportedInterfaces: [
       endpoints.jsonrpc && { url: endpoints.jsonrpc, protocolBinding: 'JSONRPC', protocolVersion: '1.0' },
       endpoints.rest && { url: endpoints.rest, protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' },
