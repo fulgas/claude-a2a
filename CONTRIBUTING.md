@@ -24,7 +24,7 @@ just try       # a Claude Code session with your working copy loaded
 
 1. Branch from `main`.
 2. Write a test that fails for the right reason, then the code that makes it pass:
-   - the wire (transports, auth, the agent card) in `bridge/a2a.test.mjs`, which runs the real bridge end to end
+   - the wire (transports, auth, the agent card) in `bridge/a2a.test.mjs`, which runs the real bridge end to end, and the client's authentication in `bridge/auth.test.mjs`
    - the hooks (tools, commands, options) in `tests/register.test.ts`, which runs against the engine
 3. Rebuild (`just build`) and commit `dist/a2a.mjs` with any change to `bridge/a2a.mjs`. Installs run no `npm install`, so CI fails when `dist/` does not match the source.
 4. Keep `just check` green: the tests, the lint, the security audit and the docs build, everything CI runs.

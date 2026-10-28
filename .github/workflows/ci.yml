@@ -31,7 +31,7 @@ jobs:
           npm run build
           git diff --exit-code dist/
       - name: The bridge, end to end over JSON-RPC, HTTP+JSON and gRPC
-        run: node --test bridge/a2a.test.mjs
+        run: node --test bridge/*.test.mjs
       - name: The plugin's hooks, against the engine
         run: npx -y @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} plugin test .
 

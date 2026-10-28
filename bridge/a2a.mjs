@@ -5,18 +5,24 @@
 //          a2a get    <url> <taskId> [--transport ...]
 //          a2a cancel <url> <taskId> [--transport ...]
 //          Credentials, as the agent card asks for them: [--api-key K] (or $A2A_API_KEY), [--token T] (or $A2A_TOKEN),
-//          or $A2A_OAUTH_CLIENT_ID and $A2A_OAUTH_CLIENT_SECRET (with $A2A_OAUTH_SCOPE, $A2A_OAUTH_AUDIENCE) to
-//          fetch a token with the client-credentials grant.
+//          $A2A_HTTP_USERNAME and $A2A_HTTP_PASSWORD for HTTP Basic, or $A2A_OAUTH_CLIENT_ID (with
+//          $A2A_OAUTH_CLIENT_SECRET, $A2A_OAUTH_SCOPE, $A2A_OAUTH_AUDIENCE, $A2A_OAUTH_REDIRECT_PORT) for an OAuth 2.0
+//          grant. TLS: $A2A_TLS_CA to trust, $A2A_TLS_CERT and $A2A_TLS_KEY to present (PEM files). Card signatures:
+//          $A2A_CARD_JWKS (a key set's URL or file) to trust, $A2A_REQUIRE_SIGNED_CARDS=1 to refuse unsigned cards.
+//          $A2A_TOKEN_CACHE holds tokens from earlier calls, as {"type":"token"} lines reported them.
 // Server:  a2a serve  --control <unix socket> [--host 127.0.0.1] [--port 41241] [--grpc-port 41242]
 //                     [--transports all|http|grpc] [--api-key K (or $A2A_SERVE_API_KEY)]
-//                     [--oidc-issuer URL --oidc-audience AUD]
+//                     [--oidc-issuer URL --oidc-audience AUD [--required-scopes "S1 S2"]]
+//                     [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK]
 //                     [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20]
 //
 // Output is NDJSON on stdout. `serve` prints {"type":"task",...} for every incoming
-// task and waits for the plugin to POST the answer to /reply on the control socket.
+// task and waits for the plugin to POST the answer to /reply on the control socket. A client prints
+// {"type":"login",url,code?} when a person must sign in, and {"type":"token",key,value} for each token it gets.
 import { randomUUID } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
 import http from 'node:http'
+import https from 'node:https'
 import { parseArgs } from 'node:util'
 import {
   AGENT_CARD_PATH,
@@ -29,7 +35,13 @@ import {
   TaskStatusUpdateEvent,
   taskStateToJSON,
 } from '@a2a-js/sdk'
-import { ClientFactory, ClientFactoryOptions, JsonRpcTransportFactory, RestTransportFactory } from '@a2a-js/sdk/client'
+import {
+  ClientFactory,
+  ClientFactoryOptions,
+  DefaultAgentCardResolver,
+  JsonRpcTransportFactory,
+  RestTransportFactory,
+} from '@a2a-js/sdk/client'
 import { GrpcTransportFactory } from '@a2a-js/sdk/client/grpc'
 import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server'
 import { agentCardHandler, jsonRpcHandler, restHandler } from '@a2a-js/sdk/server/express'
@@ -37,8 +49,9 @@ import { A2AService, grpcService } from '@a2a-js/sdk/server/grpc'
 import * as grpc from '@grpc/grpc-js'
 import express from 'express'
 import { rateLimit } from 'express-rate-limit'
+import { Agent, fetch as tlsFetch } from 'undici'
 
-import { clientHeaders, perMinute, serverAuth } from './auth.mjs'
+import { cardSigner, clientAuth, perMinute, serverAuth, verifyCard } from './auth.mjs'
 
 // Read at run time, so a release bumps package.json alone and dist/ stays as built.
 // From bridge/ and from dist/ alike, package.json is one folder up.
@@ -60,37 +73,99 @@ const partsText = (parts = []) => parts.map(partText).filter(Boolean).join('\n')
 
 // ---------- client ----------
 
-async function connect(url, transport) {
+// TLS for every client connection: the CA to trust instead of the system's, and the certificate to present.
+function clientTls() {
+  const read = name => (process.env[name] ? readFileSync(process.env[name]) : undefined)
+  const [ca, cert, key] = [read('A2A_TLS_CA'), read('A2A_TLS_CERT'), read('A2A_TLS_KEY')]
+  if (Boolean(cert) !== Boolean(key)) throw new Error('A2A_TLS_CERT and A2A_TLS_KEY go together')
+  const dispatcher = ca || cert ? new Agent({ connect: { ca, cert, key } }) : undefined
+  return {
+    fetch: dispatcher ? (input, init) => tlsFetch(input, { ...init, dispatcher }) : fetch,
+    // The card names gRPC as host:port, so it goes over TLS when the card came over HTTPS, or TLS is configured.
+    grpc: secure =>
+      secure || ca || cert
+        ? grpc.credentials.createSsl(ca ?? null, key ?? null, cert ?? null)
+        : grpc.credentials.createInsecure(),
+    clientCertificate: Boolean(cert),
+  }
+}
+
+// The agent's card, with its signatures checked.
+async function agent(url) {
+  const tls = clientTls()
+  const env = process.env
+  const verify = card =>
+    verifyCard(card, url, {
+      fetch: tls.fetch,
+      trustedKeys: env.A2A_CARD_JWKS || undefined,
+      requireSigned: ['1', 'true'].includes(env.A2A_REQUIRE_SIGNED_CARDS),
+    })
+  const card = await new DefaultAgentCardResolver({ fetchImpl: tls.fetch }).resolve(url)
+  return { url, card, signature: await verify(card), verify, tls }
+}
+
+// Tokens from earlier calls come in the environment; each new one is reported for the plugin to keep.
+function tokenCache() {
+  const cached = JSON.parse(process.env.A2A_TOKEN_CACHE || '{}')
+  return {
+    get: key => cached[key],
+    set: (key, value) => {
+      cached[key] = value
+      out({ type: 'token', key, value })
+    },
+  }
+}
+
+// A client for the agent, carrying the credentials its card asks for.
+async function connect({ url, card, tls }, opts, { interactive = true } = {}) {
+  const { transport } = opts
   const preferred = transport ? [TRANSPORTS[transport]] : undefined
   if (transport && !preferred) throw new Error(`unknown transport "${transport}" (jsonrpc|rest|grpc)`)
+  const env = process.env
+  const credentials = {
+    apiKey: opts['api-key'] || env.A2A_API_KEY || undefined,
+    token: opts.token || env.A2A_TOKEN || undefined,
+    username: env.A2A_HTTP_USERNAME || undefined,
+    password: env.A2A_HTTP_PASSWORD || undefined,
+    clientId: env.A2A_OAUTH_CLIENT_ID || undefined,
+    clientSecret: env.A2A_OAUTH_CLIENT_SECRET || undefined,
+    scope: env.A2A_OAUTH_SCOPE || undefined,
+    audience: env.A2A_OAUTH_AUDIENCE || undefined,
+    redirectPort: Number(env.A2A_OAUTH_REDIRECT_PORT) || 0,
+    clientCertificate: tls.clientCertificate,
+  }
+  const { headers, query } = await clientAuth(card, credentials, {
+    fetch: tls.fetch,
+    tokens: tokenCache(),
+    onLogin: login => out({ type: 'login', ...login }),
+    interactive,
+  })
+  const inQuery = Object.keys(query).length > 0
+  if (inQuery && transport === 'grpc') throw new Error('the agent wants its API key in the URL, which gRPC has not')
+  const fetchImpl = inQuery
+    ? (input, init) => {
+        const at = new URL(String(input))
+        for (const [name, value] of Object.entries(query)) at.searchParams.set(name, value)
+        return tls.fetch(at, init)
+      }
+    : tls.fetch
   const factory = new ClientFactory(
     ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
-      transports: [new JsonRpcTransportFactory(), new RestTransportFactory(), new GrpcTransportFactory()],
+      transports: [
+        new JsonRpcTransportFactory({ fetchImpl }),
+        new RestTransportFactory({ fetchImpl }),
+        ...(inQuery ? [] : [new GrpcTransportFactory({ grpcChannelCredentials: tls.grpc(url.startsWith('https:')) })]),
+      ],
       preferredTransports: preferred,
     }),
   )
-  const client = await factory.createFromUrl(url)
-  const card = await client.getAgentCard()
+  const client = await factory.createFromAgentCard(card)
   // The SDK treats the choice as a preference; a named transport the agent lacks is an error.
   const offered = card.supportedInterfaces.map(i => i.protocolBinding)
   if (preferred && !offered.includes(preferred[0])) {
     throw new Error(`agent does not offer ${transport}; it offers ${offered.join(', ')}`)
   }
-  return { client, card }
-}
-
-// The credentials every call to this agent carries, as its card asks for them.
-async function callOptions(card, opts) {
-  const env = process.env
-  const serviceParameters = await clientHeaders(card, {
-    apiKey: opts['api-key'] || env.A2A_API_KEY || undefined,
-    token: opts.token || env.A2A_TOKEN || undefined,
-    clientId: env.A2A_OAUTH_CLIENT_ID,
-    clientSecret: env.A2A_OAUTH_CLIENT_SECRET,
-    scope: env.A2A_OAUTH_SCOPE,
-    audience: env.A2A_OAUTH_AUDIENCE,
-  })
-  return serviceParameters && { serviceParameters }
+  return { client, options: Object.keys(headers).length ? { serviceParameters: headers } : undefined }
 }
 
 function summarizeTask(task) {
@@ -103,8 +178,8 @@ function summarizeTask(task) {
   }
 }
 
-async function send(url, text, opts) {
-  const { client, card } = await connect(url, opts.transport)
+async function send(found, text, opts) {
+  const { client, options } = await connect(found, opts)
   const request = SendMessageRequest.fromJSON({
     message: {
       messageId: randomUUID(),
@@ -117,7 +192,7 @@ async function send(url, text, opts) {
   const result = { taskId: '', contextId: '', state: '', status: '', artifacts: [], messages: [] }
   const artifacts = new Map()
 
-  for await (const ev of client.sendMessageStream(request, await callOptions(card, opts))) {
+  for await (const ev of client.sendMessageStream(request, options)) {
     const p = ev.payload
     if (!p) continue
     if (p.$case === 'message') {
@@ -151,14 +226,21 @@ async function send(url, text, opts) {
 async function client(cmd, positionals, opts) {
   const [url, arg] = positionals
   if (!url) throw new Error(`usage: a2a ${cmd} <url> ...`)
+  if (cmd !== 'card' && !arg) throw new Error(`usage: a2a ${cmd} <url> <${cmd === 'send' ? 'text' : 'taskId'}>`)
+  const found = await agent(url)
   if (cmd === 'card') {
-    const { card } = await connect(url, opts.transport)
-    return out({ type: 'result', card: AgentCard.toJSON(card) })
+    // The extended card, for a client that can sign in without asking a person; the public one otherwise.
+    const session = found.card.capabilities?.extendedAgentCard
+      ? await connect(found, opts, { interactive: false }).catch(() => undefined)
+      : undefined
+    if (!session)
+      return out({ type: 'result', card: AgentCard.toJSON(found.card), signature: found.signature, extended: false })
+    // The SDK's client fetches the extended card when the public one says there is one.
+    const card = await session.client.getAgentCard(session.options)
+    return out({ type: 'result', card: AgentCard.toJSON(card), signature: await found.verify(card), extended: true })
   }
-  if (!arg) throw new Error(`usage: a2a ${cmd} <url> <${cmd === 'send' ? 'text' : 'taskId'}>`)
-  if (cmd === 'send') return send(url, arg, opts)
-  const { client: c, card } = await connect(url, opts.transport)
-  const options = await callOptions(card, opts)
+  if (cmd === 'send') return send(found, arg, opts)
+  const { client: c, options } = await connect(found, opts)
   const task =
     cmd === 'get'
       ? await c.getTask(GetTaskRequest.fromJSON({ id: arg }), options)
@@ -185,15 +267,21 @@ async function serve(opts) {
   const host = opts.host
   const port = Number(opts.port)
   const grpcPort = Number(opts['grpc-port'])
+  if (Boolean(opts['tls-cert']) !== Boolean(opts['tls-key'])) throw new Error('--tls-cert and --tls-key go together')
+  if (opts['tls-client-ca'] && !opts['tls-cert']) throw new Error('--tls-client-ca needs --tls-cert and --tls-key')
+  const tls = opts['tls-cert'] && { cert: readFileSync(opts['tls-cert']), key: readFileSync(opts['tls-key']) }
+  const clientCa = opts['tls-client-ca'] && readFileSync(opts['tls-client-ca'])
   const auth = await serverAuth({
     apiKey: opts['api-key'] || process.env.A2A_SERVE_API_KEY || undefined,
     issuer: opts['oidc-issuer'],
     audience: opts['oidc-audience'],
+    scopes: (opts['required-scopes'] ?? '').split(/[\s,]+/).filter(Boolean),
+    mtls: Boolean(clientCa),
   })
   const isLoopback = ['127.0.0.1', 'localhost', '::1'].includes(host)
   if (!isLoopback && !auth.isConfigured) {
     throw new Error(
-      `refusing to listen on ${host} without --api-key or --oidc-issuer: incoming tasks run Claude Code with your tools`,
+      `refusing to listen on ${host} without --api-key, --oidc-issuer or --tls-client-ca: incoming tasks run Claude Code with your tools`,
     )
   }
   if (!opts.control) throw new Error('--control <unix socket path> is required')
@@ -209,7 +297,7 @@ async function serve(opts) {
   const withHttp = opts.transports !== 'grpc'
   const withGrpc = opts.transports !== 'http'
 
-  const base = `http://${host}:${port}`
+  const base = `${tls ? 'https' : 'http'}://${host}:${port}`
   const endpoints = {
     card: `${base}/${AGENT_CARD_PATH}`,
     ...(withHttp && { jsonrpc: `${base}/a2a/jsonrpc`, rest: `${base}/a2a/rest` }),
@@ -224,7 +312,7 @@ async function serve(opts) {
       endpoints.rest && { url: endpoints.rest, protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' },
       endpoints.grpc && { url: endpoints.grpc, protocolBinding: 'GRPC', protocolVersion: '1.0' },
     ].filter(Boolean),
-    capabilities: { streaming: true },
+    capabilities: { streaming: true, extendedAgentCard: auth.isConfigured },
     defaultInputModes: ['text/plain'],
     defaultOutputModes: ['text/plain'],
     skills: [
@@ -235,9 +323,18 @@ async function serve(opts) {
         tags: ['coding', 'claude'],
       },
     ],
-    // Either scheme passes: the card lists each as a requirement of its own.
+    // Any one requirement passes: each scheme is one of its own, with mutual TLS in every one when it is on.
     securitySchemes: auth.securitySchemes,
     securityRequirements: auth.securityRequirements,
+  })
+  const signer =
+    opts['card-signing-key'] && (await cardSigner(opts['card-signing-key'], `${base}/.well-known/jwks.json`))
+  const publicCard = signer ? await signer.sign(card) : card
+  // A signed-in caller also learns the limits it will meet.
+  const limit = (n, what) => (n > 0 ? `${n} ${what}` : `no limit on ${what}`)
+  const extendedCard = AgentCard.fromJSON({
+    ...AgentCard.toJSON(card),
+    description: `${card.description} Limits: ${limit(maxConcurrent, 'tasks at once')}, ${limit(Number(opts['tasks-per-minute']), 'tasks a minute per caller')}.`,
   })
 
   // taskId -> resolve({ ok, text }) for the plugin's answer
@@ -307,15 +404,31 @@ async function serve(opts) {
     },
   }
 
-  const requestHandler = new DefaultRequestHandler(card, new InMemoryTaskStore(), executor)
+  const requestHandler = new DefaultRequestHandler(
+    card,
+    new InMemoryTaskStore(),
+    executor,
+    undefined,
+    undefined,
+    undefined,
+    async ctx => (ctx.user?.isAuthenticated ? extendedCard : card),
+    signer?.sign,
+  )
 
   const app = express()
   // The agent card stays public: it is how clients learn which credentials to send. The handler sends what the
   // provider returns as is, so it gets the card's wire JSON, not the SDK's in-memory form.
+  // A refusal says what to send (WWW-Authenticate); a token without the scopes needed is forbidden, not unknown.
+  const peerName = socket => (socket.authorized ? (socket.getPeerCertificate().subject?.CN ?? 'client') : undefined)
   const authenticated = (req, res, nextMw) =>
-    auth.authenticate(req.headers).then(
-      caller => {
-        if (!caller) return res.status(401).type('text').send('unauthorized')
+    auth.authenticate({ headers: req.headers, peer: peerName(req.socket) }).then(
+      ({ caller, error }) => {
+        if (!caller) {
+          for (const challenge of auth.challenges(error)) res.append('WWW-Authenticate', challenge)
+          return error === 'insufficient_scope'
+            ? res.status(403).type('text').send('forbidden: the token lacks a scope this agent requires')
+            : res.status(401).type('text').send('unauthorized')
+        }
         req.caller = caller
         nextMw()
       },
@@ -333,12 +446,18 @@ async function serve(opts) {
           legacyHeaders: false,
         })
       : (req, res, nextMw) => nextMw()
-  app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(card) }))
+  app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(publicCard) }))
+  if (signer) app.get('/.well-known/jwks.json', (req, res) => res.json(signer.jwks))
   if (withHttp) {
     app.use('/a2a/jsonrpc', limited, authenticated, jsonRpcHandler({ requestHandler, userBuilder }))
     app.use('/a2a/rest', limited, authenticated, restHandler({ requestHandler, userBuilder }))
   }
-  const httpServer = app.listen(port, host)
+  // With a client CA the TLS layer refuses any connection without a certificate it signed, on both ports.
+  const httpServer = tls
+    ? https
+        .createServer({ ...tls, ...(clientCa && { ca: clientCa, requestCert: true, rejectUnauthorized: true }) }, app)
+        .listen(port, host)
+    : app.listen(port, host)
   const httpUp = new Promise(resolve => httpServer.once('listening', resolve))
 
   const grpcFailures = perMinute(authFailuresPerMinute)
@@ -353,13 +472,17 @@ async function serve(opts) {
           throw Object.assign(new Error('too many failed attempts'), { code: grpc.status.RESOURCE_EXHAUSTED })
         }
         const header = name => call.metadata.get(name)[0]?.toString()
-        const caller = await auth.authenticate({
-          'x-api-key': header('x-api-key'),
-          authorization: header('authorization'),
+        const { caller, error } = await auth.authenticate({
+          headers: { 'x-api-key': header('x-api-key'), authorization: header('authorization') },
+          peer: call.getAuthContext?.()?.sslPeerCertificate?.subject?.CN,
         })
         if (!caller) {
           grpcFailures.add(peer)
-          throw Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
+          throw error === 'insufficient_scope'
+            ? Object.assign(new Error('forbidden: the token lacks a scope this agent requires'), {
+                code: grpc.status.PERMISSION_DENIED,
+              })
+            : Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
         }
         return new Caller(caller)
       },
@@ -388,8 +511,16 @@ async function serve(opts) {
   const grpcUp =
     withGrpc &&
     new Promise((resolve, reject) =>
-      grpcServer.bindAsync(endpoints.grpc, grpc.ServerCredentials.createInsecure(), err =>
-        err ? reject(err) : resolve(),
+      grpcServer.bindAsync(
+        endpoints.grpc,
+        tls
+          ? grpc.ServerCredentials.createSsl(
+              clientCa || null,
+              [{ cert_chain: tls.cert, private_key: tls.key }],
+              Boolean(clientCa),
+            )
+          : grpc.ServerCredentials.createInsecure(),
+        err => (err ? reject(err) : resolve()),
       ),
     )
   Promise.all([httpUp, grpcUp]).then(
@@ -422,6 +553,11 @@ const { positionals, values } = parseArgs({
     'api-key': { type: 'string' },
     'oidc-issuer': { type: 'string' },
     'oidc-audience': { type: 'string' },
+    'required-scopes': { type: 'string' },
+    'tls-cert': { type: 'string' },
+    'tls-key': { type: 'string' },
+    'tls-client-ca': { type: 'string' },
+    'card-signing-key': { type: 'string' },
     'max-concurrent-tasks': { type: 'string', default: '4' },
     'tasks-per-minute': { type: 'string', default: '30' },
     'auth-failures-per-minute': { type: 'string', default: '20' },
