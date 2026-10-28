@@ -43,7 +43,7 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 ## Git
 
 - Commit only on a branch, never on `main`. Merging and every push are the user's call.
-- Every change reaches `main` through a pull request; the `Test`, `Lint` and DCO checks must pass on a branch up to date with `main`.
+- Every change reaches `main` through a pull request; the `Test`, `Lint` and DCO checks must pass on a branch up to date with `main`. A pull request is merged with a merge commit: GitHub's rebase rewrites the commits without their signatures, while a merge keeps them as signed and GitHub signs the merge commit itself.
 - Commits are made as `fulgas <2473927+fulgas@users.noreply.github.com>` and signed with the fulgas key (`33769175F7EF2CCD`); the repository's local git config sets both. Every commit carries the committer's `Signed-off-by:` ([Developer Certificate of Origin](https://developercertificate.org), `git commit -s`).
 - Commit messages follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/): `type(scope)!: what changed, for the person using the plugin`, one logical change per commit, and a `BREAKING CHANGE:` footer for anything that breaks a tool, a command or an option. `.githooks/commit-msg` refuses anything else (`git config core.hooksPath .githooks`).
 - Releases follow Semantic Versioning from the commits. release-please keeps a release pull request open; merging it tags `vX.Y.Z` and publishes an immutable GitHub Release. Never tag by hand.
