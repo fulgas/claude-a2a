@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "prConcurrentLimit": 3,
+  "schedule": ["* 0-5 1,15 * *"],
+  "semanticCommits": "enabled",
+  "semanticCommitType": "build",
+  "semanticCommitScope": "deps",
+  "packageRules": [
+    {
+      "description": "The bridge's dependencies are bundled into dist/a2a.mjs, so they change what ships: build(deps). CI fails until `npm run build` is committed on the branch.",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies"],
+      "groupName": "Bridge dependencies"
+    },
+    {
+      "description": "Build and lint tools do not change what ships: chore(deps)",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "Dev tools",
+      "semanticCommitType": "chore"
+    },
+    {
+      "description": "Every GitHub Actions update in one pull request, typed ci(deps): it does not change what ships",
+      "matchManagers": ["github-actions", "custom.regex"],
+      "groupName": "CI",
+      "semanticCommitType": "ci"
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "The Claude Code version CI validates and tests the plugin against",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": ["CLAUDE_CODE_VERSION: (?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "@anthropic-ai/claude-code",
+      "datasourceTemplate": "npm"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "description": "A security fix is a fix: it makes a release",
+    "semanticCommitType": "fix"
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["* 0-5 1,15 * *"]
+  }
+}

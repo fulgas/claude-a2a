@@ -1,0 +1,33 @@
+name: Release
+
+# A release comes through a pull request. On every push to main, release-please keeps the release pull request up to
+# date: the next version from the Conventional Commits since the last release, and its CHANGELOG.md entry. Merging it
+# tags vX.Y.Z and publishes the GitHub Release; releases are immutable, and the plugin ships no assets, so there is no
+# draft step. The release app's token is used so CI runs on the release pull request and the tag can be made under
+# the tag ruleset.
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    name: Release pull request, tag and GitHub Release
+    runs-on: ubuntu-26.04
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
