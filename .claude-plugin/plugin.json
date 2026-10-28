@@ -25,12 +25,16 @@
       "title": "Server transports",
       "description": "all serves JSON-RPC (+SSE), HTTP+JSON and gRPC. http serves JSON-RPC and HTTP+JSON only. grpc serves gRPC only; the HTTP port then serves just the agent card, which clients need to find the gRPC endpoint.",
       "default": "all",
-      "options": ["all", "http", "grpc"]
+      "options": [
+        "all",
+        "http",
+        "grpc"
+      ]
     },
     "host": {
       "type": "string",
       "title": "Server bind address",
-      "description": "127.0.0.1 keeps the server local. Any other address requires a token.",
+      "description": "127.0.0.1 keeps the server local. Any other address requires an API key or an OIDC issuer.",
       "default": "127.0.0.1"
     },
     "name": {
@@ -39,11 +43,23 @@
       "description": "The name this session advertises in its agent card.",
       "default": "Claude Code"
     },
-    "token": {
+    "apiKey": {
       "type": "string",
-      "title": "Server bearer token",
-      "description": "Callers must send Authorization: Bearer <token>. Empty means no auth (local only).",
+      "title": "Server API key",
+      "description": "Callers may send it in the X-API-Key header. Empty: no API key.",
       "sensitive": true,
+      "default": ""
+    },
+    "oidcIssuer": {
+      "type": "string",
+      "title": "Server OIDC issuer",
+      "description": "Callers may send a JWT from this issuer as Authorization: Bearer. Its discovery document and key set are fetched at start. Needs an audience. Empty: no OIDC.",
+      "default": ""
+    },
+    "oidcAudience": {
+      "type": "string",
+      "title": "Server OIDC audience",
+      "description": "The aud a caller's JWT must carry.",
       "default": ""
     },
     "autoServe": {
@@ -51,6 +67,38 @@
       "title": "Start server with each session",
       "description": "Run /a2a-serve automatically when a session starts.",
       "default": false
+    },
+    "clientApiKey": {
+      "type": "string",
+      "title": "Client API key",
+      "description": "Sent to remote agents whose card asks for an API key. Empty: $A2A_API_KEY.",
+      "sensitive": true,
+      "default": ""
+    },
+    "oauthClientId": {
+      "type": "string",
+      "title": "Client OAuth client id",
+      "description": "With the secret, fetches a token with the client-credentials grant from the endpoint a remote agent's card names. Empty: $A2A_OAUTH_CLIENT_ID.",
+      "default": ""
+    },
+    "oauthClientSecret": {
+      "type": "string",
+      "title": "Client OAuth client secret",
+      "description": "Empty: $A2A_OAUTH_CLIENT_SECRET.",
+      "sensitive": true,
+      "default": ""
+    },
+    "oauthScope": {
+      "type": "string",
+      "title": "Client OAuth scope",
+      "description": "The scope to ask for, if the provider needs one. Empty: $A2A_OAUTH_SCOPE.",
+      "default": ""
+    },
+    "oauthAudience": {
+      "type": "string",
+      "title": "Client OAuth audience",
+      "description": "The audience to ask for, for providers that take one (Auth0). Empty: $A2A_OAUTH_AUDIENCE.",
+      "default": ""
     }
   }
 }

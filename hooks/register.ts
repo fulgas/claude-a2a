@@ -28,7 +28,30 @@ const transportSchema = {
   description:
     "Wire protocol. jsonrpc = JSON-RPC over HTTP with SSE streaming. Default: the agent card's preferred one.",
 }
-const tokenSchema = { type: 'string', description: 'Bearer token, if the agent requires one. Default: $A2A_TOKEN.' }
+const tokenSchema = {
+  type: 'string',
+  description:
+    'Bearer token (a JWT), if the agent needs one and no saved OAuth client can fetch it. Default: $A2A_TOKEN.',
+}
+const apiKeySchema = {
+  type: 'string',
+  description:
+    "API key, if the agent's card asks for one and it is not the saved client API key. Default: $A2A_API_KEY.",
+}
+
+// Saved client credentials go to the bridge in its environment, over any the host sets; unset ones fall back to it.
+function clientEnv(options: PluginOptions) {
+  const env: Record<string, string> = {}
+  const set = (name: string, value: unknown) => {
+    if (value) env[name] = String(value)
+  }
+  set('A2A_API_KEY', options.clientApiKey)
+  set('A2A_OAUTH_CLIENT_ID', options.oauthClientId)
+  set('A2A_OAUTH_CLIENT_SECRET', options.oauthClientSecret)
+  set('A2A_OAUTH_SCOPE', options.oauthScope)
+  set('A2A_OAUTH_AUDIENCE', options.oauthAudience)
+  return env
+}
 
 // Server state lives in module variables: a reload kills the bridge child anyway.
 let server: { stop: () => Promise<unknown>; socket: string; info: BridgeLine } | undefined
@@ -45,7 +68,7 @@ async function reply($: EngineInterface, taskId: string, ok: boolean, text: stri
 }
 
 // Saved settings (userConfig) first; flags typed after /a2a-serve win, as the
-// bridge's parseArgs keeps the last value. The token travels in env, not argv.
+// bridge's parseArgs keeps the last value. The API key travels in env, not argv.
 function serveArgs(options: PluginOptions, typed: string[]) {
   const saved = [
     '--port',
@@ -59,7 +82,9 @@ function serveArgs(options: PluginOptions, typed: string[]) {
     '--transports',
     String(options.transports || 'all'),
   ]
-  const env: Record<string, string> = options.token ? { A2A_SERVE_TOKEN: String(options.token) } : {}
+  if (options.oidcIssuer) saved.push('--oidc-issuer', String(options.oidcIssuer))
+  if (options.oidcAudience) saved.push('--oidc-audience', String(options.oidcAudience))
+  const env: Record<string, string> = options.apiKey ? { A2A_SERVE_API_KEY: String(options.apiKey) } : {}
   return { args: [...saved, ...typed], env }
 }
 
@@ -82,10 +107,10 @@ function startServer(
           } else if (msg.type === 'task') {
             const taskId = String(msg.taskId)
             const text = String(msg.text)
-            $.ui.toast(`A2A task: ${text.slice(0, 60)}`)
+            $.ui.toast(`A2A task from ${msg.caller}: ${text.slice(0, 60)}`)
             const spawned = await $.agent.spawn({
               prompt: text,
-              description: `A2A ${taskId.slice(0, 8)}`,
+              description: `A2A ${msg.caller} ${taskId.slice(0, 8)}`,
             })
             if (spawned.deny !== undefined) await reply($, taskId, false, spawned.deny)
             else if (spawned.agentId) running.set(spawned.agentId, taskId)
@@ -138,6 +163,7 @@ export const register: Register = (on, options) => {
             taskId: { type: 'string' },
             transport: transportSchema,
             token: tokenSchema,
+            apiKey: apiKeySchema,
           },
           required: ['url', 'message'],
         },
@@ -152,6 +178,7 @@ export const register: Register = (on, options) => {
             taskId: { type: 'string' },
             transport: transportSchema,
             token: tokenSchema,
+            apiKey: apiKeySchema,
           },
           required: ['url', 'taskId'],
         },
@@ -166,6 +193,7 @@ export const register: Register = (on, options) => {
             taskId: { type: 'string' },
             transport: transportSchema,
             token: tokenSchema,
+            apiKey: apiKeySchema,
           },
           required: ['url', 'taskId'],
         },
@@ -174,7 +202,7 @@ export const register: Register = (on, options) => {
         name: 'a2a-serve',
         description: 'Expose this session as an A2A agent (JSON-RPC/SSE, HTTP+JSON, gRPC)',
         argumentHint:
-          '[--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1] [--token T] [--name N]',
+          '[--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1] [--api-key K] [--oidc-issuer URL --oidc-audience AUD] [--name N]',
       }),
       $.command.register({ name: 'a2a-stop', description: 'Stop the A2A server' }),
     ])
@@ -204,9 +232,10 @@ export const register: Register = (on, options) => {
     if (cmd === 'send' && input.taskId) args.push('--task-id', input.taskId)
     if (input.transport) args.push('--transport', input.transport)
     if (input.token) args.push('--token', input.token)
+    if (input.apiKey) args.push('--api-key', input.apiKey)
 
     let last: BridgeLine = { type: 'error', error: 'bridge exited without a result' }
-    for await (const msg of lines(bridge($, args))) {
+    for await (const msg of lines(bridge($, args, clientEnv(options)))) {
       if (msg.type === 'progress') $.ui.notice(e.tool_use_id, `${msg.state}: ${String(msg.text).slice(0, 120)}`)
       else last = msg
     }
