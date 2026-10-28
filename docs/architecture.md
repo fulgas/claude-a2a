@@ -218,6 +218,7 @@ flowchart LR
 - `npm audit` gates known vulnerabilities in the bundled dependencies, and dependency review refuses a pull request that adds a vulnerable or GPL-licensed one. `npm audit signatures` checks every package against the registry's signatures and provenance.
 - Every GitHub Action is pinned to a commit SHA; zizmor audits the workflows, and every workflow token has only the permissions its job needs. CodeQL analyses the code and the workflows; OpenSSF Scorecard rates the whole repository.
 - The Zola binary that builds the docs site is checked against its SHA-256 before it runs.
+- Each release rebuilds `dist/a2a.mjs` from its tag, checks it against the committed bundle, and signs SLSA build provenance for `dist/a2a.mjs`, `hooks/register.ts` and `plugin.json`. The immutable release carries GitHub's own release attestation. [SECURITY.md](https://github.com/fulgas/claude-a2a/blob/main/SECURITY.md#verifying-a-release) says how to verify both.
 - Commits and tags are signed, `main` changes only through reviewed pull requests, and releases are immutable. Secret scanning with push protection refuses a pushed credential.
 
 **Configuration.** The plugin's `userConfig` (`port`, `grpcPort`, `transports`, `host`, `name`, `token`, `autoServe`) lives in `pluginConfigs` in settings. The token is marked sensitive, so `/plugin` keeps it in secure storage. Flags typed after `/a2a-serve` override saved values for that run. On the client side, `A2A_TOKEN` is the default bearer token.

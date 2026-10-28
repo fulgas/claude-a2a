@@ -4,7 +4,8 @@ name: Release
 # date: the next version from the Conventional Commits since the last release, and its CHANGELOG.md entry. Merging it
 # tags vX.Y.Z and publishes the GitHub Release; releases are immutable, and the plugin ships no assets, so there is no
 # draft step. The release app's token is used so CI runs on the release pull request and the tag can be made under
-# the tag ruleset.
+# the tag ruleset. Once a release exists, the provenance job rebuilds the bundle from the tag, checks it is the one
+# committed, and signs SLSA build provenance for the files the plugin runs.
 
 on:
   push:
@@ -17,6 +18,9 @@ jobs:
   release-please:
     name: Release pull request, tag and GitHub Release
     runs-on: ubuntu-26.04
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      sha: ${{ steps.release.outputs.sha }}
     concurrency:
       group: release
       cancel-in-progress: false
@@ -30,8 +34,41 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
           permission-issues: write
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ steps.app.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  provenance:
+    name: Build provenance
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # The provenance is only true if the committed bundle is what the tagged source builds.
+      - name: dist/ is what the tagged source builds
+        run: |
+          npm run build
+          git diff --exit-code dist/
+      # Verify with: gh attestation verify <file> --repo fulgas/claude-a2a
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/a2a.mjs
+            hooks/register.ts
+            .claude-plugin/plugin.json
