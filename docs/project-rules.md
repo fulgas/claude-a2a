@@ -14,7 +14,7 @@ How changes to the a2a plugin are made. What the plugin does and how it is built
 - **Split by capability.** The hooks module (`hooks/register.ts`) registers tools and commands, spawns subagents and reads their answers. The bridge (`bridge/a2a.mjs`) does everything that needs a socket. Nothing protocol-specific goes in the hooks module.
 - **The SDK first.** Protocol behaviour comes from `@a2a-js/sdk`; the bridge only wires it.
 - **KISS and YAGNI.** The simplest thing that meets the documentation, and nothing for a future that has not been asked for. No abstraction with one implementation, no option for a value nobody changes.
-- **Safe by default.** The server is loopback-only without a token, the token never reaches argv or a log, and every transport checks it. Weakening any of these needs an issue that says why.
+- **Safe by default.** The server is loopback-only without an API key or an OIDC issuer, secrets never reach argv or a log, and every transport checks the credentials. Weakening any of these needs an issue that says why.
 
 ## Test first
 
@@ -68,5 +68,5 @@ Renovate types its updates by what they change. Updates to the bridge's dependen
 
 ## Secrets
 
-- Bearer tokens (`A2A_TOKEN`, `A2A_SERVE_TOKEN`, the `token` option) are never printed, logged, committed or put on a command line.
+- Secrets (API keys, OAuth client secrets and bearer tokens: `A2A_SERVE_API_KEY`, `A2A_API_KEY`, `A2A_TOKEN`, `A2A_OAUTH_CLIENT_SECRET`, and the `apiKey`, `clientApiKey` and `oauthClientSecret` options) are never printed, logged, committed or put on a command line.
 - Issues and pull requests never carry a token: the bug template asks for them to be removed from pasted output.

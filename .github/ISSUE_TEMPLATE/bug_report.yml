@@ -63,7 +63,7 @@ body:
     id: logs
     attributes:
       label: Tool result or log lines
-      description: The tool's JSON result, or lines from `claude --debug`. Remove bearer tokens before pasting.
+      description: The tool's JSON result, or lines from `claude --debug`. Remove API keys and tokens before pasting.
       render: shell
   - type: checkboxes
     id: checklist

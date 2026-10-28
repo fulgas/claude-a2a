@@ -31,7 +31,7 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 - **Split by capability.** The hooks module registers tools and commands, spawns subagents and reads their answers. The bridge does everything that needs a socket. Nothing protocol-specific goes in the hooks module.
 - **The SDK first.** Protocol behaviour comes from `@a2a-js/sdk`; the bridge only wires it. Read the SDK's types before writing protocol code of our own.
 - **KISS, YAGNI.** No abstraction with one implementation, no option for a value nobody changes.
-- **Security at the boundary.** The server is loopback-only without a token; the token travels in the environment, never argv; auth is checked on every transport. Do not weaken any of these without an issue that says why.
+- **Security at the boundary.** The server is loopback-only without an API key or an OIDC issuer; secrets travel in the environment, never argv; credentials are checked on every transport. Do not weaken any of these without an issue that says why.
 - **Mermaid** draws the diagrams in `docs/`, and never contains a semicolon: Mermaid reads it as the end of a statement.
 
 ## Making a change
@@ -51,4 +51,4 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 
 ## Secrets
 
-Bearer tokens (`A2A_TOKEN`, `A2A_SERVE_TOKEN`, the `token` option) are never printed, logged or committed, and never put on a command line.
+Secrets (`A2A_SERVE_API_KEY`, `A2A_API_KEY`, `A2A_TOKEN`, `A2A_OAUTH_CLIENT_SECRET`, and the `apiKey`, `clientApiKey` and `oauthClientSecret` options) are never printed, logged or committed, and never put on a command line.

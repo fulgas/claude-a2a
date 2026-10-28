@@ -35,12 +35,13 @@ Requires Node 20+ on `PATH`. The bridge ships prebuilt in `dist/`, so there is n
 | `mcp__a2a__get_task` | Returns a task's state and artifacts |
 | `mcp__a2a__cancel_task` | Cancels a task |
 
-Every tool takes `transport` (`jsonrpc` \| `rest` \| `grpc`; the default is the agent card's preference) and `token` (bearer; the default is `$A2A_TOKEN`).
+Every tool takes `transport` (`jsonrpc` \| `rest` \| `grpc`; the default is the agent card's preference). Credentials come from the saved client options or the environment (see [Authentication](#authentication)); `apiKey` and `token` override them for one call, but anything passed that way lands in the transcript.
 
 ## Server
 
 ```
-/a2a-serve [--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1] [--token T] [--name N]
+/a2a-serve [--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1]
+           [--api-key K] [--oidc-issuer URL --oidc-audience AUD] [--name N]
 /a2a-stop
 ```
 
@@ -70,14 +71,35 @@ Set defaults in `/plugin`, under the plugin's options, or in `settings.json`:
 | `port` | `41241` | HTTP port (card, JSON-RPC + SSE, HTTP+JSON) |
 | `grpcPort` | `41242` | gRPC port |
 | `transports` | `all` | `all`, `http` (JSON-RPC + HTTP+JSON) or `grpc`. In `grpc` mode the HTTP port serves only the agent card, which clients need to find the gRPC endpoint |
-| `host` | `127.0.0.1` | Bind address. Anything else requires `token` |
+| `host` | `127.0.0.1` | Bind address. Anything else requires `apiKey` or `oidcIssuer` |
 | `name` | `Claude Code` | Agent name in the card |
-| `token` | empty | Bearer token callers must send. Marked sensitive, so set it in `/plugin`, which keeps it in secure storage |
+| `apiKey` | empty | API key callers may send in `X-API-Key`. Sensitive |
+| `oidcIssuer` | empty | OIDC issuer whose JWTs callers may send as `Authorization: Bearer` |
+| `oidcAudience` | empty | The `aud` those JWTs must carry. Required with `oidcIssuer` |
 | `autoServe` | `false` | Start the server when a session starts |
+| `clientApiKey` | `$A2A_API_KEY` | API key sent to agents whose card asks for one. Sensitive |
+| `oauthClientId`, `oauthClientSecret` | `$A2A_OAUTH_CLIENT_ID`, `$A2A_OAUTH_CLIENT_SECRET` | OAuth2 client for the client-credentials grant. The secret is sensitive |
+| `oauthScope`, `oauthAudience` | `$A2A_OAUTH_SCOPE`, `$A2A_OAUTH_AUDIENCE` | Scope and audience to ask the token endpoint for, when the provider needs them |
 
-Flags typed after `/a2a-serve` override the saved values for that run. The bridge receives the token through its environment (`A2A_SERVE_TOKEN`), never on the command line. On the client side, `A2A_TOKEN` is the default bearer token for outgoing calls.
+Sensitive options are kept in secure storage when set through `/plugin`.
 
-**Security.** Incoming tasks run with this session's tools and permissions. The server binds to `127.0.0.1` by default. It refuses any other host unless you pass `--token`, and then every call must send `Authorization: Bearer <token>` (gRPC: `authorization` metadata). gRPC has no TLS, so put a TLS proxy in front of it before exposing it beyond your machine.
+Flags typed after `/a2a-serve` override the saved values for that run. Secrets reach the bridge through its environment, never on the command line.
+
+## Authentication
+
+**Server.** Incoming tasks run with this session's tools and permissions, so the server binds to `127.0.0.1` by default and refuses any other host unless at least one of these is set. With both set, either one lets a caller in:
+
+- **API key:** callers send `X-API-Key: <key>` (gRPC: `x-api-key` metadata).
+- **OIDC / OAuth2 JWT:** callers send `Authorization: Bearer <jwt>` from your identity provider. At start the server reads the issuer's discovery document and key set, then checks each token's signature (asymmetric algorithms only), `iss`, `aud` and `exp`. The token's `sub` names the caller in the task's toast.
+
+The agent card advertises whichever schemes are on, and stays public, so clients can learn what to send.
+
+**Client.** The tools read the remote agent's card and send what it asks for:
+
+- an API key in the header its `apiKey` scheme names, from `clientApiKey` or `$A2A_API_KEY`
+- a bearer token: `$A2A_TOKEN` as given, or one fetched with the OAuth2 client-credentials grant from the token endpoint the card names (its `oauth2` client-credentials flow, or its OIDC discovery document), when an OAuth client id and secret are set
+
+gRPC and HTTP here are plaintext: put a TLS proxy in front before exposing the server beyond your machine, or a token can be read on the wire.
 
 ## How it works
 
