@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-a2a",
+  "description": "A2A protocol plugin for Claude Code.",
+  "owner": {
+    "name": "Nelson Silva",
+    "email": "nelson.emanuel.silva@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "a2a",
+      "description": "A2A client tools and server (JSON-RPC/SSE, HTTP+JSON, gRPC).",
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}

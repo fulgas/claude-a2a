@@ -1,0 +1,56 @@
+{
+  "name": "a2a",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "description": "Agent2Agent (A2A) protocol for Claude Code: call remote A2A agents and expose Claude Code as an A2A agent over JSON-RPC (HTTP+SSE), HTTP+JSON and gRPC.",
+  "author": {
+    "name": "Nelson Silva",
+    "email": "nelson.emanuel.silva@gmail.com"
+  },
+  "userConfig": {
+    "port": {
+      "type": "number",
+      "title": "Server HTTP port",
+      "description": "Port for the agent card, JSON-RPC (+SSE) and HTTP+JSON endpoints.",
+      "default": 41241
+    },
+    "grpcPort": {
+      "type": "number",
+      "title": "Server gRPC port",
+      "description": "Port for the gRPC endpoint.",
+      "default": 41242
+    },
+    "transports": {
+      "type": "string",
+      "title": "Server transports",
+      "description": "all serves JSON-RPC (+SSE), HTTP+JSON and gRPC. http serves JSON-RPC and HTTP+JSON only. grpc serves gRPC only; the HTTP port then serves just the agent card, which clients need to find the gRPC endpoint.",
+      "default": "all",
+      "options": ["all", "http", "grpc"]
+    },
+    "host": {
+      "type": "string",
+      "title": "Server bind address",
+      "description": "127.0.0.1 keeps the server local. Any other address requires a token.",
+      "default": "127.0.0.1"
+    },
+    "name": {
+      "type": "string",
+      "title": "Agent name",
+      "description": "The name this session advertises in its agent card.",
+      "default": "Claude Code"
+    },
+    "token": {
+      "type": "string",
+      "title": "Server bearer token",
+      "description": "Callers must send Authorization: Bearer <token>. Empty means no auth (local only).",
+      "sensitive": true,
+      "default": ""
+    },
+    "autoServe": {
+      "type": "boolean",
+      "title": "Start server with each session",
+      "description": "Run /a2a-serve automatically when a session starts.",
+      "default": false
+    }
+  }
+}
