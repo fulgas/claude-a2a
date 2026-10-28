@@ -1,6 +1,6 @@
 # Architecture
 
-This document follows [arc42](https://arc42.org). Diagrams use the [C4 model](https://c4model.com) and are written in Mermaid, so GitHub renders them in place.
+This document follows [arc42](https://arc42.org). Diagrams follow the [C4 model](https://c4model.com): each box names the element, its kind in brackets and what it does. They are written in Mermaid, so GitHub renders them in place.
 
 ## 1. Introduction and goals
 
@@ -28,20 +28,24 @@ This document follows [arc42](https://arc42.org). Diagrams use the [C4 model](ht
 ## 3. Context and scope
 
 ```mermaid
-C4Context
-  title System context: the a2a plugin
-
-  Person(user, "Developer", "Works in a Claude Code session")
-  System(plugin, "a2a plugin", "Claude Code plugin: A2A client tools and an A2A server")
-  System_Ext(remote, "Remote A2A agent", "Any agent that speaks A2A")
-  System_Ext(caller, "Calling A2A agent", "Any A2A client that sends tasks to this session")
-  System_Ext(claude, "Claude Code", "The host: model, tools, permissions, subagents")
-
-  Rel(user, claude, "Prompts, /a2a-serve, /a2a-stop")
-  Rel(claude, plugin, "Loads; calls its tools; runs its hooks")
-  Rel(plugin, remote, "Sends messages, reads tasks", "JSON-RPC+SSE / HTTP+JSON / gRPC")
-  Rel(caller, plugin, "Sends tasks", "JSON-RPC+SSE / HTTP+JSON / gRPC")
-  Rel(plugin, claude, "Runs each incoming task as a subagent")
+flowchart TB
+  user(["<b>Developer</b><br/><small>[Person]</small><br/>Works in a Claude Code session"])
+  claude["<b>Claude Code</b><br/><small>[Software system]</small><br/>The host: model, tools, permissions, subagents"]
+  plugin["<b>a2a plugin</b><br/><small>[Software system]</small><br/>A2A client tools and an A2A server"]
+  remote["<b>Remote A2A agent</b><br/><small>[Software system]</small><br/>Any agent that speaks A2A"]
+  caller["<b>Calling A2A agent</b><br/><small>[Software system]</small><br/>Any A2A client that sends tasks here"]
+  user -- "Prompts, /a2a-serve, /a2a-stop" --> claude
+  claude -- "Loads it, calls its tools, runs its hooks" --> plugin
+  plugin -- "Runs each incoming task as a subagent" --> claude
+  plugin -- "Sends messages, reads tasks<br/>JSON-RPC+SSE · HTTP+JSON · gRPC" --> remote
+  caller -- "Sends tasks<br/>JSON-RPC+SSE · HTTP+JSON · gRPC" --> plugin
+  classDef person fill:#8E3820,stroke:#6E2A17,color:#fff
+  classDef system fill:#B5472A,stroke:#8E3820,color:#fff
+  classDef container fill:#F6E4DC,stroke:#B5472A,color:#1F1B17
+  classDef external fill:#EDE6DD,stroke:#8A8178,color:#1F1B17
+  class user person
+  class plugin system
+  class claude,remote,caller external
 ```
 
 | Neighbour | Exchanges |
@@ -63,56 +67,60 @@ C4Context
 ### Level 2: containers
 
 ```mermaid
-C4Container
-  title Containers: inside the a2a plugin
-
-  System_Ext(claude, "Claude Code engine", "Model, subagents, permissions")
-  System_Ext(other, "Other A2A agents")
-
-  System_Boundary(plugin, "a2a plugin") {
-    Container(mod, "Hooks module", "TypeScript, hooks/register.ts", "Tools, slash commands, subagent routing")
-    Container(bridge, "Bridge", "Node 20+, dist/a2a.mjs", "A2A client and server on @a2a-js/sdk")
-    ContainerDb(socket, "Control socket", "Unix socket in /tmp", "The plugin's answers back to the bridge")
-  }
-
-  Rel(claude, mod, "Hook events: session.start, tool.call, command.run, turn.complete")
-  Rel(mod, claude, "$.tool.register, $.agent.spawn, $.ui.*")
-  Rel(mod, bridge, "Spawns; reads NDJSON from stdout", "$.process.spawn")
-  Rel(mod, socket, "POST /reply {taskId, ok, text}", "$.http.fetch")
-  Rel(socket, bridge, "Resolves the waiting task")
-  BiRel(bridge, other, "A2A", "JSON-RPC+SSE / HTTP+JSON / gRPC")
+flowchart TB
+  claude["<b>Claude Code engine</b><br/><small>[Software system]</small><br/>Model, subagents, permissions"]
+  other["<b>Other A2A agents</b><br/><small>[Software system]</small>"]
+  subgraph plugin["a2a plugin"]
+    mod["<b>Hooks module</b><br/><small>[Container: TypeScript, hooks/register.ts]</small><br/>Tools, slash commands, subagent routing"]
+    bridge["<b>Bridge</b><br/><small>[Container: Node 20+, dist/a2a.mjs]</small><br/>A2A client and server on @a2a-js/sdk"]
+    socket[("<b>Control socket</b><br/><small>[Container: Unix socket in /tmp]</small><br/>The plugin's answers to the bridge")]
+  end
+  claude -- "session.start, tool.call,<br/>command.run, turn.complete" --> mod
+  mod -- "$.tool.register, $.agent.spawn, $.ui" --> claude
+  mod -- "Spawns it, reads NDJSON on stdout" --> bridge
+  mod -- "POST /reply" --> socket
+  socket -- "Resolves the waiting task" --> bridge
+  bridge <-- "A2A<br/>JSON-RPC+SSE · HTTP+JSON · gRPC" --> other
+  classDef person fill:#8E3820,stroke:#6E2A17,color:#fff
+  classDef system fill:#B5472A,stroke:#8E3820,color:#fff
+  classDef container fill:#F6E4DC,stroke:#B5472A,color:#1F1B17
+  classDef external fill:#EDE6DD,stroke:#8A8178,color:#1F1B17
+  class mod,bridge,socket container
+  class claude,other external
 ```
 
 ### Level 3: components
 
 ```mermaid
-C4Component
-  title Components
-
-  Container_Boundary(mod, "Hooks module (hooks/register.ts)") {
-    Component(reg, "session.start hook", "Registers the 4 tools and 2 commands; auto-starts the server")
-    Component(tools, "tool.call hook", "card / send / get_task / cancel_task to a bridge client command")
-    Component(cmds, "command.run hooks", "/a2a-serve, /a2a-stop; saved options plus typed flags")
-    Component(router, "Task router", "Bridge task line to $.agent.spawn; agentId to taskId")
-    Component(done, "turn.complete hook", "A subagent's answer to POST /reply")
-  }
-
-  Container_Boundary(bridge, "Bridge (bridge/a2a.mjs)") {
-    Component(cli, "Client commands", "ClientFactory with JSON-RPC, REST and gRPC transports")
-    Component(card, "Agent card", "Lists only the enabled interfaces")
-    Component(http, "HTTP server", "Express: card, /a2a/jsonrpc, /a2a/rest; bearer check")
-    Component(grpc, "gRPC server", "@grpc/grpc-js A2AService; bearer check in metadata")
-    Component(exec, "Executor", "Publishes a task, prints it, waits for /reply")
-    Component(ctl, "Control server", "HTTP on the Unix socket: /reply")
-  }
-
-  Rel(tools, cli, "argv; NDJSON progress and result")
-  Rel(cmds, router, "Starts serve; reads its lines")
-  Rel(http, exec, "Requests")
-  Rel(grpc, exec, "Requests")
-  Rel(exec, router, "task line on stdout")
-  Rel(done, ctl, "POST /reply")
-  Rel(ctl, exec, "Resolves the task")
+flowchart LR
+  subgraph mod["Hooks module · hooks/register.ts"]
+    reg["<b>session.start hook</b><br/><small>[Component]</small><br/>Registers the 4 tools and 2 commands, auto-starts the server"]
+    tools["<b>tool.call hook</b><br/><small>[Component]</small><br/>card, send, get_task, cancel_task"]
+    cmds["<b>command.run hooks</b><br/><small>[Component]</small><br/>/a2a-serve, /a2a-stop, saved options plus typed flags"]
+    router["<b>Task router</b><br/><small>[Component]</small><br/>Task line to $.agent.spawn, agentId to taskId"]
+    done["<b>turn.complete hook</b><br/><small>[Component]</small><br/>A subagent's answer to POST /reply"]
+  end
+  subgraph bridge["Bridge · bridge/a2a.mjs"]
+    cli["<b>Client commands</b><br/><small>[Component]</small><br/>ClientFactory with JSON-RPC, REST and gRPC"]
+    card["<b>Agent card</b><br/><small>[Component]</small><br/>Lists only the enabled interfaces"]
+    http["<b>HTTP server</b><br/><small>[Component: Express]</small><br/>Card, /a2a/jsonrpc, /a2a/rest, bearer check"]
+    grpc["<b>gRPC server</b><br/><small>[Component: grpc-js]</small><br/>A2AService, bearer check in metadata"]
+    exec["<b>Executor</b><br/><small>[Component]</small><br/>Publishes a task, prints it, waits for /reply"]
+    ctl["<b>Control server</b><br/><small>[Component]</small><br/>HTTP on the Unix socket: /reply"]
+  end
+  tools -- "argv, NDJSON back" --> cli
+  cmds -- "Starts serve" --> router
+  http --> exec
+  grpc --> exec
+  http -- "serves" --> card
+  exec -- "task line on stdout" --> router
+  done -- "POST /reply" --> ctl
+  ctl -- "Resolves the task" --> exec
+  classDef person fill:#8E3820,stroke:#6E2A17,color:#fff
+  classDef system fill:#B5472A,stroke:#8E3820,color:#fff
+  classDef container fill:#F6E4DC,stroke:#B5472A,color:#1F1B17
+  classDef external fill:#EDE6DD,stroke:#8A8178,color:#1F1B17
+  class reg,tools,cmds,router,done,cli,card,http,grpc,exec,ctl container
 ```
 
 | Building block | Source |
