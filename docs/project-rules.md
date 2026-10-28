@@ -11,7 +11,7 @@ How changes to the a2a plugin are made. What the plugin does and how it is built
 
 ## Principles
 
-- **Split by capability.** The hooks module (`hooks/register.ts`) registers tools and commands, spawns subagents and reads their answers. The bridge (`bridge/a2a.mjs`) does everything that needs a socket. Nothing protocol-specific goes in the hooks module.
+- **Split by capability.** The hooks module (`hooks/register.ts`) registers tools and commands, puts tasks into the conversation or spawns subagents, and reads their answers. The bridge (`bridge/a2a.mjs`) does everything that needs a socket. Nothing protocol-specific goes in the hooks module.
 - **The SDK first.** Protocol behaviour comes from `@a2a-js/sdk`; the bridge only wires it.
 - **KISS and YAGNI.** The simplest thing that meets the documentation, and nothing for a future that has not been asked for. No abstraction with one implementation, no option for a value nobody changes.
 - **Safe by default.** The server is loopback-only without an API key, an issuer or a client CA, secrets never reach argv or a log, and every transport checks the credentials. Weakening any of these needs an issue that says why.

@@ -4,7 +4,7 @@ Instructions for coding agents working on the a2a plugin. People start with [REA
 
 ## What this is
 
-A Claude Code plugin that speaks the A2A protocol both ways: tools to call remote A2A agents, and `/a2a-serve` to expose a session as an A2A agent whose tasks run as subagents. Two parts:
+A Claude Code plugin that speaks the A2A protocol both ways: tools to call remote A2A agents, and `/a2a-serve` to expose a session as an A2A agent whose tasks run in that session: as prompts in the conversation, or as subagents. Two parts:
 
 - `hooks/register.ts`, the hooks module Claude Code runs (TypeScript, no Node, no sockets)
 - `bridge/a2a.mjs`, a Node process on `@a2a-js/sdk` that speaks JSON-RPC + SSE, HTTP+JSON and gRPC, bundled into the committed `dist/a2a.mjs`
@@ -28,7 +28,7 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 
 ## Code
 
-- **Split by capability.** The hooks module registers tools and commands, spawns subagents and reads their answers. The bridge does everything that needs a socket. Nothing protocol-specific goes in the hooks module.
+- **Split by capability.** The hooks module registers tools and commands, puts tasks into the conversation or spawns subagents, and reads their answers. The bridge does everything that needs a socket. Nothing protocol-specific goes in the hooks module.
 - **The SDK first.** Protocol behaviour comes from `@a2a-js/sdk`; the bridge only wires it. Read the SDK's types before writing protocol code of our own.
 - **KISS, YAGNI.** No abstraction with one implementation, no option for a value nobody changes.
 - **Security at the boundary.** The server is loopback-only without an API key, an issuer or a client CA; secrets travel in the environment, never argv; credentials are checked on every transport. Do not weaken any of these without an issue that says why.

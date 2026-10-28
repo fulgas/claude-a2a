@@ -1,0 +1,13 @@
+<!-- The plugin icon. Rendered to .claude-plugin/icon.png at 1024 px, with Fraunces from docs-site/static/vendor. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="A2A">
+  <rect width="1024" height="1024" rx="224" fill="#b5472a"/>
+  <text x="512" y="520" text-anchor="middle" font-family="Fraunces, Georgia, serif" font-size="340" font-weight="700" letter-spacing="-12" fill="#fbf7f2">A2A</text>
+  <g stroke="#fbf7f2" stroke-width="22" stroke-linecap="round" fill="none">
+    <path d="M300 650 H690"/>
+    <path d="M724 750 H334"/>
+  </g>
+  <g fill="#fbf7f2">
+    <path d="M690 622 l56 28 l-56 28 z"/>
+    <path d="M334 722 l-56 28 l56 28 z"/>
+  </g>
+</svg>

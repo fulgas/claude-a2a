@@ -216,3 +216,102 @@ test('a sign-in is shown to the person, and the token it gave is passed to the n
   expect(envs[0]?.A2A_TOKEN_CACHE).toBe(undefined)
   expect(JSON.parse(String(envs[1]?.A2A_TOKEN_CACHE))).toEqual({ k1: { accessToken: 'at', expiresAt: 1 } })
 })
+
+// A bridge that is up, hands the plugin one task, and stays up until the test ends; the plugin's answers to it,
+// as POST /reply bodies on the control socket.
+function bridgeWithTask(on: Parameters<Parameters<typeof test>[1]>[1], task = 'review the diff') {
+  const replies: { taskId: string; ok: boolean; text: string }[] = []
+  let release: () => void = () => {}
+  const held = new Promise<void>(resolve => (release = resolve))
+  on('process.spawn', async function* () {
+    yield { stream: 'stdout' as const, text: '{"type":"ready","card":"c","jsonrpc":"j"}\n' }
+    yield { stream: 'stdout' as const, text: `{"type":"task","taskId":"task-1","caller":"api-key","text":"${task}"}\n` }
+    await held
+    return { value: { code: 0, signal: null } }
+  })
+  on('http.fetch', (_, e) => {
+    replies.push(JSON.parse(String(e.init?.body)))
+    return { value: { status: 204, headers: {}, body: '' } }
+  })
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  return { replies, release }
+}
+const settled = () => new Promise(resolve => setTimeout(resolve, 20))
+
+test('by default a task runs in the main thread, and that turn answers it', async ($, on) => {
+  const { replies, release } = bridgeWithTask(on)
+  const submitted: string[] = []
+  on('prompt.submit', (_, e) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  const ran = await $.command.run({ command: 'a2a-serve', args: '' })
+  await settled()
+
+  expect(ran.text).toContain('in this conversation')
+  expect(submitted).toHaveLength(1)
+  expect(submitted[0]).toContain('A2A task task-1 from api-key')
+  expect(submitted[0]).toContain('review the diff')
+
+  await $.turn.start({ text: 'something the person typed', turnId: 'mine' })
+  await $.turn.complete({
+    turnId: 'mine',
+    answer: 'not for the caller',
+    reason: 'answer',
+    durationMs: 1,
+    isAborted: false,
+  })
+  await $.turn.start({ text: submitted[0], turnId: 't1' })
+  await $.turn.complete({ turnId: 't1', answer: 'looks good', reason: 'answer', durationMs: 1, isAborted: false })
+
+  expect(replies).toEqual([{ taskId: 'task-1', ok: true, text: 'looks good' }])
+  release()
+})
+
+// Only core sets a started subagent's id, so these check what is spawned; the inline test covers answers.
+for (const [taskMode, subagentType] of [
+  ['subagent', undefined],
+  ['fork', 'fork'],
+] as const) {
+  test(
+    `taskMode ${taskMode} runs a task as ${subagentType ? 'a fork of this conversation' : 'a fresh subagent'}`,
+    { options: { taskMode } },
+    async ($, on) => {
+      const { release } = bridgeWithTask(on)
+      const spawned: Record<string, unknown>[] = []
+      on('agent.spawn', (_, e) => {
+        spawned.push(e as unknown as Record<string, unknown>)
+        return { model: 'm' }
+      })
+
+      const ran = await $.command.run({ command: 'a2a-serve', args: '' })
+      await settled()
+
+      expect(ran.text).toContain(`taskMode ${taskMode}`)
+      expect(spawned).toHaveLength(1)
+      expect(spawned[0].prompt).toBe('review the diff')
+      // Under test the spawn arrives as the Agent tool's call.
+      expect(spawned[0].subagent_type ?? spawned[0].subagentType).toBe(subagentType)
+      release()
+    },
+  )
+}
+
+test('a typed --task-mode wins over the saved one and stays out of the bridge argv', async ($, on) => {
+  let argv: readonly string[] = []
+  on('process.spawn', async function* (_, e) {
+    argv = e.argv
+    return yield* spawned(['{"type":"ready","card":"c"}\n'])
+  })
+  on('ui.status', () => ({ value: undefined }))
+
+  const ran = await $.command.run({ command: 'a2a-serve', args: '--task-mode fork --port 9500' })
+
+  expect(argv).not.toContain('--task-mode')
+  expect(argv).toContain('9500')
+  expect(ran.text).toContain('fork')
+})

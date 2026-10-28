@@ -43,6 +43,17 @@
       "description": "The name this session advertises in its agent card.",
       "default": "Claude Code"
     },
+    "taskMode": {
+      "type": "string",
+      "title": "Server: where tasks run",
+      "description": "inline runs each task as a prompt in this conversation, one at a time, and its answer goes back. subagent runs each in a subagent with a fresh context. fork runs each in a subagent that starts with a copy of this conversation. inline and fork let callers see this conversation.",
+      "default": "inline",
+      "options": [
+        "inline",
+        "subagent",
+        "fork"
+      ]
+    },
     "apiKey": {
       "type": "string",
       "title": "Server API key",
