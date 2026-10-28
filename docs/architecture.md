@@ -210,6 +210,7 @@ flowchart LR
 - An incoming message becomes a prompt that runs with the session's tools and permissions. The server is therefore loopback-only unless an API key or an OIDC issuer is set; the bridge refuses any other host without one.
 - **API key:** `X-API-Key` on HTTP, `x-api-key` metadata on gRPC, compared in constant time.
 - **OIDC JWT:** `Authorization: Bearer <jwt>`. The bridge reads the issuer's discovery document at start (its `issuer` must match exactly) and verifies each token against the issuer's key set with `jose`: signature with asymmetric algorithms only (so an HMAC token signed with a public key cannot pass), `iss`, `aud` (required) and `exp`, with 30 seconds of clock tolerance. The token's `sub` becomes the caller's name, which the SDK carries to the task and the plugin shows.
+- **Limits.** A client that fails to sign in `authFailuresPerMinute` times (default 20) is refused for the rest of the minute: `express-rate-limit` on HTTP, a counter per peer on gRPC. Signed-in callers are capped too, since each task runs a subagent on the session's tokens: `maxConcurrentTasks` at once (default 4) and `tasksPerMinute` per caller (default 30). A task over a limit fails before any subagent starts.
 - With both on, either credential passes, and the card lists each as a requirement of its own. The card itself stays public: it is how a client learns what to send.
 - The client reads the remote card's schemes: an API key goes in the header its `apiKey` scheme names, and a bearer token is given or fetched with the OAuth2 client-credentials grant from the card's token endpoint (an `oauth2` client-credentials flow, or OIDC discovery).
 - Secrets (`A2A_SERVE_API_KEY`, the client's API key and OAuth secret) reach the bridge through the environment, never argv, so `ps` does not show them.
@@ -224,7 +225,7 @@ flowchart LR
 - Each release rebuilds `dist/a2a.mjs` from its tag, checks it against the committed bundle, and signs SLSA build provenance for `dist/a2a.mjs`, `hooks/register.ts` and `plugin.json`. The immutable release carries GitHub's own release attestation. [SECURITY.md](https://github.com/fulgas/claude-a2a/blob/main/SECURITY.md#verifying-a-release) says how to verify both.
 - Commits and tags are signed, `main` changes only through reviewed pull requests, and releases are immutable. Secret scanning with push protection refuses a pushed credential.
 
-**Configuration.** The plugin's `userConfig` (the server's `port`, `grpcPort`, `transports`, `host`, `name`, `apiKey`, `oidcIssuer`, `oidcAudience` and `autoServe`; the client's `clientApiKey`, `oauthClientId`, `oauthClientSecret`, `oauthScope` and `oauthAudience`) lives in `pluginConfigs` in settings. The API keys and the OAuth secret are marked sensitive, so `/plugin` keeps them in secure storage. Flags typed after `/a2a-serve` override saved values for that run. Unset client options fall back to `A2A_API_KEY`, `A2A_TOKEN` and `A2A_OAUTH_*` in the environment.
+**Configuration.** The plugin's `userConfig` (the server's `port`, `grpcPort`, `transports`, `host`, `name`, `apiKey`, `oidcIssuer`, `oidcAudience`, `maxConcurrentTasks`, `tasksPerMinute`, `authFailuresPerMinute` and `autoServe`; the client's `clientApiKey`, `oauthClientId`, `oauthClientSecret`, `oauthScope` and `oauthAudience`) lives in `pluginConfigs` in settings. The API keys and the OAuth secret are marked sensitive, so `/plugin` keeps them in secure storage. Flags typed after `/a2a-serve` override saved values for that run. Unset client options fall back to `A2A_API_KEY`, `A2A_TOKEN` and `A2A_OAUTH_*` in the environment.
 
 **Errors.** Every bridge failure becomes a `{"type":"error"}` line. The plugin turns it into a tool error the model can read. A subagent that ends without an answer fails its A2A task with the reason.
 
@@ -249,6 +250,8 @@ flowchart LR
 | Security | A call without a valid API key or JWT is refused on every transport | `bridge/a2a.test.mjs`, api key and oidc suites |
 | Security | A JWT for another audience, expired, from another issuer or HMAC-signed is refused | `bridge/a2a.test.mjs`, oidc suite |
 | Security | Secrets never appear in argv | `tests/register.test.ts` |
+| Security | A client that keeps failing to sign in is refused, on HTTP and gRPC | `bridge/a2a.test.mjs`, api key and task limits suites |
+| Cost | Tasks over the concurrent or per-caller limit fail before a subagent starts | `bridge/a2a.test.mjs`, task limits suite |
 | Correctness | A named transport the agent lacks is an error, not a silent fallback | `bridge/a2a.test.mjs` |
 | Installability | `dist/` matches the source | CI `Test` job |
 
