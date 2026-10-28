@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/fulgas/claude-a2a/compare/v0.1.0...v0.2.0) (2026-10-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* a client call no longer sends $A2A_TOKEN, the token tool parameter or the API key to an agent whose card does not ask for them. An agent that needs a credential must say so in its card's securitySchemes.
+
+### Features
+
+* every security scheme of the A2A specification, on both sides ([6717c2f](https://github.com/fulgas/claude-a2a/commit/6717c2f12344b24ca7bbd5c4a28549948aeeeac0))
+
 ## 0.1.0 (2026-10-28)
 
 
