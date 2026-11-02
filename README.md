@@ -22,9 +22,9 @@ A Claude Code plugin that speaks the [A2A protocol](https://a2a-protocol.org) in
 /plugin install a2a@claude-a2a
 ```
 
-Or, while developing: `claude --plugin-dir /path/to/claude-a2a`.
+This installs the latest release. To run `main` instead, while developing: `just build`, then `claude --plugin-dir /path/to/claude-a2a`.
 
-Requires Node 20+ on `PATH`. The bridge ships prebuilt in `dist/`, so there is no `npm install` step.
+Requires Node 20+ on `PATH`. Each release ships the bridge prebuilt in `dist/`, so there is no `npm install` step.
 
 ## Client tools
 

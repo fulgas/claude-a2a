@@ -23,7 +23,7 @@ This document follows [arc42](https://arc42.org). Diagrams follow the [C4 model]
 | A Claude Code hooks module has no Node, no sockets and no DOM. It reaches the outside only through `$`. | The wire protocols live in a separate Node process: the bridge. |
 | `$.http.fetch` resolves only after the whole body is read. | It cannot read an SSE stream or speak gRPC, which is one more reason for the bridge. |
 | `$.process.spawn` closes the child's stdin after the first write. | The plugin answers the bridge over a Unix socket (`$.http.fetch` with `socketPath`), not over stdin. |
-| Plugins install by copying the repository, with no `npm install`. | The bridge is bundled into one committed file, `dist/a2a.mjs`, and CI checks that it matches the source. |
+| Plugins install by copying the repository, with no `npm install`. | The bridge is bundled into one file, `dist/a2a.mjs`, committed only by a release, and the marketplace installs the release's tag. |
 | A2A clients find an agent by fetching its card over HTTP. | The HTTP port always serves the agent card, even in `grpc`-only mode. |
 
 ## 3. Context and scope
@@ -268,7 +268,7 @@ flowchart LR
 - Claude Code's own permission prompts still apply to what the task does.
 
 **Supply chain.** What runs on a user's machine is the hooks module and `dist/a2a.mjs`, which bundles the bridge's dependencies, so those are guarded hardest.
-- CI rebuilds `dist/a2a.mjs` from the source and the lockfile and fails if it differs, so the committed bundle cannot carry code the source does not.
+- Only the release workflow commits `dist/a2a.mjs`: it rebuilds it from the release pull request's source and lockfile, so the bundle cannot carry code the source does not. CI refuses any other pull request that changes `dist/`.
 - `npm audit` gates known vulnerabilities in the bundled dependencies, and dependency review refuses a pull request that adds a vulnerable or GPL-licensed one. `npm audit signatures` checks every package against the registry's signatures and provenance.
 - Every GitHub Action is pinned to a commit SHA; zizmor audits the workflows, and every workflow token has only the permissions its job needs. CodeQL analyses the code and the workflows; OpenSSF Scorecard rates the whole repository.
 - The Zola binary that builds the docs site is checked against its SHA-256 before it runs.
@@ -287,7 +287,7 @@ flowchart LR
 | --- | --- | --- |
 | A hooks-module plugin, not an MCP server | Native to Claude Code: tools, commands, subagents and the status line from one module | An MCP server: no subagents, no slash commands |
 | A Node bridge on `@a2a-js/sdk` | Official SDK with all three transports, client and server; Node is already a Claude Code requirement | Python `a2a-sdk`: another runtime to install |
-| Commit the bundled `dist/a2a.mjs` | Plugins install with no `npm install` | Install dependencies on first run: slow and fragile offline |
+| Commit the bundled `dist/a2a.mjs`, in the release pull request only, and install from the release's tag | Plugins install with no `npm install`, and every bundle is built from the source it is released with | Install dependencies on first run: slow and fragile offline. Commit the bundle with every bridge change: every pull request then needs a rebuild, Renovate's too, and a lock file and bundle can still drift apart in the release pull request |
 | Unix control socket for answers | `$.process.spawn` stdin is one-shot; `$.http.fetch` can use a socket path | A TCP port: reachable by other local users |
 | Inline by default, subagents on request | A task in the conversation is seen, answered with the conversation's context and steered by the person; a subagent keeps the conversation private and runs tasks in parallel. Which matters depends on who the callers are, so it is an option | One fixed mode: either hides the work from the person or hands every caller the conversation |
 | Tie an inline task to its turn by a header line with the task id | `$.prompt.submit` returns no turn id; `turn.start` carries the turn's text, and the header names the task | Order of submission: breaks when the person's own prompts interleave |
@@ -321,7 +321,7 @@ flowchart LR
 | Cost | Tasks over the concurrent or per-caller limit fail before Claude runs them | `bridge/a2a.test.mjs`, task limits suite |
 | Correctness | A named transport the agent lacks is an error, not a silent fallback | `bridge/a2a.test.mjs` |
 | Correctness | An inline task's answer is its own turn's, never the person's turn's | `tests/register.test.ts` |
-| Installability | `dist/` matches the source | CI `Test` job |
+| Installability | The released `dist/` is what its tag builds | The release workflow's bundle and provenance jobs |
 
 ## 11. Risks and technical debt
 
