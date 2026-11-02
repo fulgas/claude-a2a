@@ -10,6 +10,8 @@ name: Release
 on:
   push:
     branches: [ main ]
+  # Rerun by hand, when the release pull request has to be brought up to date without a new push to main.
+  workflow_dispatch:
 
 permissions:
   contents: read
