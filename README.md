@@ -56,7 +56,7 @@ Every tool takes `transport` (`jsonrpc` \| `rest` \| `grpc`; the default is the 
 | HTTP+JSON | `http://HOST:PORT/a2a/rest` |
 | gRPC | `HOST:GRPC_PORT` |
 
-With `tlsCert` and `tlsKey`, every one of them is served over TLS (`https://`).
+With `tlsCert` and `tlsKey`, every one of them is served over TLS (`https://`); the card then names gRPC as `https://HOST:GRPC_PORT`.
 
 ### Saved settings
 

@@ -81,7 +81,7 @@ function clientTls() {
   const dispatcher = ca || cert ? new Agent({ connect: { ca, cert, key } }) : undefined
   return {
     fetch: dispatcher ? (input, init) => tlsFetch(input, { ...init, dispatcher }) : fetch,
-    // The card names gRPC as host:port, so it goes over TLS when the card came over HTTPS, or TLS is configured.
+    // gRPC goes over TLS when the card names it https://, or came over HTTPS, or TLS is configured.
     grpc: secure =>
       secure || ca || cert
         ? grpc.credentials.createSsl(ca ?? null, key ?? null, cert ?? null)
@@ -115,6 +115,15 @@ function tokenCache() {
     },
   }
 }
+
+// gRPC as the card names it: host:port, or with a scheme (https:// for TLS), which grpc-js does not take.
+const grpcTransport = (tls, cardUrl) => ({
+  protocolName: 'GRPC',
+  create: (target, card) =>
+    new GrpcTransportFactory({
+      grpcChannelCredentials: tls.grpc(/^https:/i.test(target) || cardUrl.startsWith('https:')),
+    }).create(target.replace(/^https?:\/\//i, ''), card),
+})
 
 // A client for the agent, carrying the credentials its card asks for.
 async function connect({ url, card, tls }, opts, { interactive = true } = {}) {
@@ -154,7 +163,7 @@ async function connect({ url, card, tls }, opts, { interactive = true } = {}) {
       transports: [
         new JsonRpcTransportFactory({ fetchImpl }),
         new RestTransportFactory({ fetchImpl }),
-        ...(inQuery ? [] : [new GrpcTransportFactory({ grpcChannelCredentials: tls.grpc(url.startsWith('https:')) })]),
+        ...(inQuery ? [] : [grpcTransport(tls, url)]),
       ],
       preferredTransports: preferred,
     }),
@@ -301,7 +310,8 @@ async function serve(opts) {
   const endpoints = {
     card: `${base}/${AGENT_CARD_PATH}`,
     ...(withHttp && { jsonrpc: `${base}/a2a/jsonrpc`, rest: `${base}/a2a/rest` }),
-    ...(withGrpc && { grpc: `${host}:${grpcPort}` }),
+    // gRPC is named by its scheme: https:// over TLS, and host:port alone in the clear, as gRPC reads it.
+    ...(withGrpc && { grpc: `${tls ? 'https://' : ''}${host}:${grpcPort}` }),
   }
   const card = AgentCard.fromJSON({
     name: opts.name,
@@ -512,7 +522,7 @@ async function serve(opts) {
     withGrpc &&
     new Promise((resolve, reject) =>
       grpcServer.bindAsync(
-        endpoints.grpc,
+        `${host}:${grpcPort}`,
         tls
           ? grpc.ServerCredentials.createSsl(
               clientCa || null,
