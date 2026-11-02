@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/fulgas/claude-a2a/compare/v0.5.0...v0.6.0) (2026-11-02)
+
+
+### Features
+
+* **server:** name a machine caller by its client, and a delegated one by both ([39b3fd2](https://github.com/fulgas/claude-a2a/commit/39b3fd25c55658853103d705783799c99043dee6))
+
 ## [0.5.0](https://github.com/fulgas/claude-a2a/compare/v0.4.1...v0.5.0) (2026-11-02)
 
 
