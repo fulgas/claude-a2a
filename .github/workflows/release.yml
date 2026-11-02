@@ -91,7 +91,9 @@ jobs:
             const file = ".claude-plugin/marketplace.json"
             const marketplace = JSON.parse(fs.readFileSync(file, "utf8"))
             const ref = `v${require("./package.json").version}`
-            marketplace.plugins[0].source = { source: "github", repo: process.env.GITHUB_REPOSITORY, ref }
+            // Over HTTPS: a "github" source clones over SSH, which fails for anyone without a key on GitHub.
+            const url = `https://github.com/${process.env.GITHUB_REPOSITORY}.git`
+            marketplace.plugins[0].source = { source: "url", url, ref }
             fs.writeFileSync(file, `${JSON.stringify(marketplace, null, 2)}\n`)
           '
       - if: steps.pr.outputs.branch != ''
