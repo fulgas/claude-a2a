@@ -10,7 +10,11 @@
     {
       "name": "a2a",
       "description": "A2A client tools and server (JSON-RPC/SSE, HTTP+JSON, gRPC).",
-      "source": "./",
+      "source": {
+        "source": "github",
+        "repo": "fulgas/claude-a2a",
+        "ref": "v0.3.1"
+      },
       "category": "development"
     }
   ]
