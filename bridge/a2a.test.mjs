@@ -374,6 +374,10 @@ describe('TLS and mutual TLS', async () => {
   test('the server serves HTTPS and gRPC over TLS; the card names https endpoints', async () => {
     const { url, ready } = await serve(...tls)
     assert.match(ready.jsonrpc, /^https:/)
+    // gRPC over TLS is named with https://, for clients that choose TLS by the scheme.
+    const { card } = await clientWith(trusting, 'card', url)
+    const grpcUrl = card.supportedInterfaces.find(i => i.protocolBinding === 'GRPC').url
+    assert.match(grpcUrl, /^https:\/\/localhost:\d+$/)
     for (const transport of ['jsonrpc', 'rest', 'grpc']) {
       const r = await clientWith(trusting, 'send', url, 'x', '--transport', transport)
       assert.equal(r.state, 'completed', `${transport}: ${r.error}`)
