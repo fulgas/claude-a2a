@@ -120,6 +120,20 @@ describe('transports http', async () => {
   })
 })
 
+describe('public host', async () => {
+  // Listening on every address, as for a caller in a container, while the card names the one it reaches.
+  const { url, ready } = await serve('--host', '0.0.0.0', '--public-host', 'localhost', '--api-key', 'k3y')
+
+  test('the card names the public host, and a caller reaches every transport through it', async () => {
+    assert.equal(new URL(ready.jsonrpc).hostname, 'localhost')
+    assert.match(ready.grpc, /^localhost:\d+$/)
+    for (const transport of ['jsonrpc', 'rest', 'grpc']) {
+      const r = await clientWith({ A2A_API_KEY: 'k3y' }, 'send', url, 'x', '--transport', transport)
+      assert.equal(r.state, 'completed', `${transport}: ${r.error}`)
+    }
+  })
+})
+
 describe('transports grpc', async () => {
   const { url, ready } = await serve('--transports', 'grpc')
 

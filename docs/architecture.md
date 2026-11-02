@@ -245,6 +245,7 @@ flowchart LR
 
 - One bridge process per session that runs `/a2a-serve`. Client calls start a short-lived bridge each.
 - Defaults: HTTP on `41241`, gRPC on `41242`, bound to `127.0.0.1`.
+- The card names the bind address, or `publicHost` when callers reach the server by another name: a caller in Docker reaches the host as `host.docker.internal` while the server listens on `0.0.0.0`.
 - The plugin itself installs from the `fulgas/claude-a2a` marketplace. The release is the git tag, and its files are the repository's contents at that tag.
 
 ## 8. Cross-cutting concepts
