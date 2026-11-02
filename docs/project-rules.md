@@ -49,7 +49,7 @@ The subject says what changed in plain words (`fix(server): refuse gRPC calls wi
 
 Scopes, when they help: `client`, `server`, `bridge`, `plugin`, `config`, `deps`, `release`, `lint`, `docs-site`. One logical change per commit.
 
-`.githooks/commit-msg` refuses any other message; turn it on once per clone with `git config core.hooksPath .githooks`. Every change reaches `main` through a pull request, where `Test`, `Lint` and the DCO check must pass on a branch up to date with `main`. A pull request is merged with a merge commit: GitHub's rebase rewrites the commits without their signatures, while a merge keeps them as signed and GitHub signs the merge commit itself. Every commit is signed (`git commit -S`) and signed off (`git commit -s`): the `Signed-off-by:` line certifies the [Developer Certificate of Origin](https://developercertificate.org).
+`.githooks/commit-msg` refuses any other message; turn it on once per clone with `git config core.hooksPath .githooks`. Every change reaches `main` through a pull request, where `Test`, `Lint` and the DCO check must pass on a branch up to date with `main`. A pull request is merged with a merge commit: GitHub's rebase rewrites the commits without their signatures, while a merge keeps them as signed and GitHub signs the merge commit itself. A pull request's title is plain words, not a Conventional Commit (`Name gRPC over TLS as https://`, not `fix(bridge): …`): GitHub writes the title into the merge commit's body, and release-please would count that line as a second commit. Every commit is signed (`git commit -S`) and signed off (`git commit -s`): the `Signed-off-by:` line certifies the [Developer Certificate of Origin](https://developercertificate.org).
 
 ## Releases
 

@@ -30,7 +30,7 @@ just try       # a Claude Code session with your working copy loaded
 4. Keep `just check` green: the tests, the lint, the security audit and the docs build, everything CI runs.
 5. Write commit messages in [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) form, one logical change per commit: `fix(server): refuse gRPC calls without the token`. The type decides the next version: `fix` is a patch, `feat` a minor, and a `BREAKING CHANGE:` footer a major. Sign each commit (`git commit -S`) and sign it off (`git commit -s`), which certifies the [Developer Certificate of Origin](https://developercertificate.org). `main` accepts only signed, signed-off commits.
 6. For a change to the docs, `just docs-serve` shows the site at http://localhost:8000 as it will appear on [fulgas.github.io/claude-a2a](https://fulgas.github.io/claude-a2a/).
-7. Open a pull request that says what changed for the person using the plugin, and why.
+7. Open a pull request that says what changed for the person using the plugin, and why. Its title is plain words, not a Conventional Commit: GitHub copies it into the merge commit, where release-please would count it again.
 
 ## Releases
 
