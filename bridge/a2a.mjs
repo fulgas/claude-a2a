@@ -58,6 +58,8 @@ import { cardSigner, clientAuth, perMinute, serverAuth, verifyCard } from './aut
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
 const TRANSPORTS = { jsonrpc: 'JSONRPC', rest: 'HTTP+JSON', grpc: 'GRPC' }
+// The Secure Passport v1 extension (a2a-samples), by the URI of its folder there.
+const SECURE_PASSPORT = 'https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport'
 
 const out = obj => process.stdout.write(`${JSON.stringify(obj)}\n`)
 const stateName = s => taskStateToJSON(s).replace('TASK_STATE_', '').toLowerCase()
@@ -259,10 +261,11 @@ async function client(cmd, positionals, opts) {
 
 // ---------- server ----------
 
-// The authenticated caller, as the SDK carries it to the executor.
+// The authenticated caller, as the SDK carries it to the executor, with the client its token names, if any.
 class Caller {
-  constructor(name) {
+  constructor(name, client) {
     this.name = name
+    this.client = client
   }
   get isAuthenticated() {
     return this.name !== 'anonymous'
@@ -324,7 +327,14 @@ async function serve(opts) {
       endpoints.rest && { url: endpoints.rest, protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' },
       endpoints.grpc && { url: endpoints.grpc, protocolBinding: 'GRPC', protocolVersion: '1.0' },
     ].filter(Boolean),
-    capabilities: { streaming: true, extendedAgentCard: auth.isConfigured },
+    capabilities: {
+      streaming: true,
+      extendedAgentCard: auth.isConfigured,
+      // A gateway's token names the gateway, so the caller it relays for comes in a Secure Passport.
+      ...(opts['oidc-issuer'] && {
+        extensions: [{ uri: SECURE_PASSPORT, required: false, params: { supportedStateKeys: ['onBehalfOf'] } }],
+      }),
+    },
     defaultInputModes: ['text/plain'],
     defaultOutputModes: ['text/plain'],
     skills: [
@@ -364,15 +374,37 @@ async function serve(opts) {
       }),
     )
 
+  // The caller a gateway says it relays for, in a Secure Passport's onBehalfOf. It is the gateway's word, not proof:
+  // taken only from the gateway the token names (the passport's clientId is the token's client), and only as a name,
+  // since it goes into the prompt. A passport that is used is echoed in the response's A2A-Extensions.
+  const relayedCaller = (message, user, context) => {
+    const passport = message.metadata?.[SECURE_PASSPORT]
+    if (!passport) return undefined
+    const onBehalfOf = passport.state?.onBehalfOf
+    if (
+      !user?.client ||
+      passport.clientId !== user.client ||
+      typeof onBehalfOf?.sub !== 'string' ||
+      !/^[\w.@:+-]{1,128}$/.test(onBehalfOf.sub)
+    ) {
+      console.error("a2a: ignoring a Secure Passport: not from the token's client, or onBehalfOf.sub is not a name")
+      return undefined
+    }
+    context.addActivatedExtension(SECURE_PASSPORT)
+    return `${onBehalfOf.sub} via ${user.client}${onBehalfOf.verified === false ? ' (unverified)' : ''}`
+  }
+
   const executor = {
     async execute(ctx, bus) {
       const { taskId, contextId, userMessage } = ctx
+      const caller = ctx.context?.user?.userName ?? 'anonymous'
+      // Limits stay on the authenticated caller; the relayed one is only how the task is named.
+      const shown = relayedCaller(userMessage, ctx.context?.user, ctx.context) ?? caller
       if (!ctx.task) {
         const task = Task.fromJSON({ id: taskId, contextId, status: { state: 'TASK_STATE_SUBMITTED' } })
         task.history = [userMessage]
         bus.publish(AgentEvent.task(task))
       }
-      const caller = ctx.context?.user?.userName ?? 'anonymous'
       // Refused before Claude runs it, so a refused task costs nothing.
       const refusal =
         maxConcurrent > 0 && running.size >= maxConcurrent
@@ -389,7 +421,7 @@ async function serve(opts) {
       running.add(taskId)
       bus.publish(status(taskId, contextId, 'TASK_STATE_WORKING'))
       const answer = new Promise(resolve => pending.set(taskId, resolve))
-      out({ type: 'task', taskId, contextId, caller, text: partsText(userMessage.parts) })
+      out({ type: 'task', taskId, contextId, caller: shown, text: partsText(userMessage.parts) })
       const { ok, text, canceled } = await answer
       pending.delete(taskId)
       running.delete(taskId)
@@ -439,7 +471,7 @@ async function serve(opts) {
   const peerName = socket => (socket.authorized ? (socket.getPeerCertificate().subject?.CN ?? 'client') : undefined)
   const authenticated = (req, res, nextMw) =>
     auth.authenticate({ headers: req.headers, peer: peerName(req.socket) }).then(
-      ({ caller, error }) => {
+      ({ caller, client, error }) => {
         if (!caller) {
           for (const challenge of auth.challenges(error)) res.append('WWW-Authenticate', challenge)
           return error === 'insufficient_scope'
@@ -447,11 +479,12 @@ async function serve(opts) {
             : res.status(401).type('text').send('unauthorized')
         }
         req.caller = caller
+        req.client = client
         nextMw()
       },
       err => nextMw(err),
     )
-  const userBuilder = async req => new Caller(req.caller)
+  const userBuilder = async req => new Caller(req.caller, req.client)
   // Refuses a client that keeps failing to authenticate, so a key cannot be guessed; successful calls do not count.
   const limited =
     authFailuresPerMinute > 0
@@ -489,7 +522,7 @@ async function serve(opts) {
           throw Object.assign(new Error('too many failed attempts'), { code: grpc.status.RESOURCE_EXHAUSTED })
         }
         const header = name => call.metadata.get(name)[0]?.toString()
-        const { caller, error } = await auth.authenticate({
+        const { caller, client, error } = await auth.authenticate({
           headers: { 'x-api-key': header('x-api-key'), authorization: header('authorization') },
           peer: call.getAuthContext?.()?.sslPeerCertificate?.subject?.CN,
         })
@@ -501,7 +534,7 @@ async function serve(opts) {
               })
             : Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
         }
-        return new Caller(caller)
+        return new Caller(caller, client)
       },
     }),
   )

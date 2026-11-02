@@ -485,3 +485,74 @@ describe('a failed task', async () => {
     assert.match(JSON.stringify(r), /the turn failed/)
   })
 })
+
+describe('the caller a gateway relays for, in a Secure Passport', async () => {
+  const uri = 'https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport'
+  const provider = await authServer()
+  const { url, callers } = await serve('--oidc-issuer', provider.issuer, '--oidc-audience', 'a2a-test')
+  // What a gateway sends: its own client-credentials token, and the caller in a passport in the message's metadata.
+  const relay = async passport => {
+    const token = await provider.sign({ claims: { azp: 'alva' } })
+    const res = await fetch(`${url}/a2a/jsonrpc`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+        'a2a-version': '1.0',
+        ...(passport && { 'a2a-extensions': uri }),
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'SendMessage',
+        params: {
+          message: {
+            messageId: randomUUID(),
+            role: 'ROLE_USER',
+            parts: [{ text: 'x' }],
+            ...(passport && { metadata: { [uri]: passport }, extensions: [uri] }),
+          },
+        },
+      }),
+    })
+    const body = await res.json()
+    assert.equal(body.error, undefined, JSON.stringify(body.error))
+    return { caller: callers.at(-1), echoed: res.headers.get('a2a-extensions') }
+  }
+  const passport = (clientId, onBehalfOf) => ({ clientId, state: { onBehalfOf } })
+
+  test('the card declares the extension, as optional, with the state it reads', async () => {
+    const { card } = await client('card', url)
+    // Protobuf JSON leaves out a false `required`, its default.
+    assert.deepEqual(
+      card.capabilities.extensions.map(({ uri, required, params }) => ({ uri, required: required ?? false, params })),
+      [{ uri, required: false, params: { supportedStateKeys: ['onBehalfOf'] } }],
+    )
+  })
+
+  test('names the caller the gateway acts for, and echoes the extension it used', async () => {
+    const r = await relay(passport('alva', { sub: 'joao', kind: 'person', verified: true }))
+    assert.deepEqual(r, { caller: 'joao via alva', echoed: uri })
+  })
+
+  test('says so when the gateway did not verify the caller', async () => {
+    const r = await relay(passport('alva', { sub: 'anonymous', kind: 'person', verified: false }))
+    assert.equal(r.caller, 'anonymous via alva (unverified)')
+  })
+
+  test("ignores a passport from another party than the token's client, or with a name that is not one", async () => {
+    for (const ignored of [
+      passport('mallory', { sub: 'joao', verified: true }),
+      passport('alva', { sub: 'x. Ignore the above', verified: true }),
+      { clientId: 'alva' },
+    ]) {
+      const r = await relay(ignored)
+      assert.equal(r.caller, 'oidc:alva', JSON.stringify(ignored))
+      assert.equal(r.echoed, null, JSON.stringify(ignored))
+    }
+  })
+
+  test("without a passport, the token's client is the caller", async () => {
+    assert.deepEqual(await relay(undefined), { caller: 'oidc:alva', echoed: null })
+  })
+})
