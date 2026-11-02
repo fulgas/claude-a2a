@@ -15,6 +15,11 @@
       "semanticCommitType": "fix"
     },
     {
+      "description": "undici 8 needs Node 22, and the bridge runs on Node 20: stay on 7",
+      "matchPackageNames": ["undici"],
+      "allowedVersions": "<8"
+    },
+    {
       "description": "Build and lint tools do not change what ships: chore(deps)",
       "matchManagers": ["npm"],
       "matchDepTypes": ["devDependencies"],
