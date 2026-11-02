@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/fulgas/claude-a2a/compare/v0.4.1...v0.5.0) (2026-11-02)
+
+
+### Features
+
+* **server:** a public host for the agent card ([f8983db](https://github.com/fulgas/claude-a2a/commit/f8983db26d2a973fdebf24a82d56bbd85601b0ee))
+
 ## [0.4.1](https://github.com/fulgas/claude-a2a/compare/v0.4.0...v0.4.1) (2026-11-02)
 
 
