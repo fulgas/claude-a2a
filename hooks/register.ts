@@ -344,7 +344,12 @@ export const register: Register = (on, options) => {
     const taskId = running.get(key)
     if (taskId) {
       running.delete(key)
-      await reply($, taskId, e.reason === 'answer', e.answer || `the task ended: ${e.reason}`)
+      await reply(
+        $,
+        taskId,
+        e.reason === 'answer',
+        e.answer || `Claude Code's turn ended without an answer (${e.reason})`,
+      )
     }
     return done
   })

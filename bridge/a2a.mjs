@@ -393,7 +393,9 @@ async function serve(opts) {
       const { ok, text, canceled } = await answer
       pending.delete(taskId)
       running.delete(taskId)
-      if (!canceled) {
+      if (canceled) {
+        // The cancel already ended the task.
+      } else if (ok) {
         bus.publish(
           AgentEvent.artifactUpdate(
             TaskArtifactUpdateEvent.fromJSON({
@@ -404,7 +406,10 @@ async function serve(opts) {
             }),
           ),
         )
-        bus.publish(status(taskId, contextId, ok ? 'TASK_STATE_COMPLETED' : 'TASK_STATE_FAILED', ok ? '' : text))
+        bus.publish(status(taskId, contextId, 'TASK_STATE_COMPLETED'))
+      } else {
+        // A failure is no answer: its reason goes in the status alone.
+        bus.publish(status(taskId, contextId, 'TASK_STATE_FAILED', text))
       }
       bus.finished()
     },

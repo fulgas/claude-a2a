@@ -43,9 +43,9 @@ const clientWith = async (env, ...args) => (await linesWith(env, ...args)).at(-1
 const client = (...args) => clientWith({}, ...args)
 
 // Starts `serve` and answers every task with "echo: <text>", as the plugin would; a leading
-// `{ replyAfterMs }` holds each answer back, to keep tasks running.
+// `{ replyAfterMs }` holds each answer back, to keep tasks running, and `{ ok: false }` fails each one.
 async function serve(...args) {
-  const { replyAfterMs = 0 } = typeof args[0] === 'object' ? args.shift() : {}
+  const { replyAfterMs = 0, ok = true } = typeof args[0] === 'object' ? args.shift() : {}
   const [port, grpcPort] = [await freePort(), await freePort()]
   const control = `/tmp/a2a-test-${randomUUID().slice(0, 8)}.sock`
   const child = spawn('node', [BRIDGE, 'serve', '--control', control, '--port', port, '--grpc-port', grpcPort, ...args])
@@ -67,7 +67,7 @@ async function serve(...args) {
             () =>
               http
                 .request({ socketPath: control, path: '/reply', method: 'POST' }, res => res.resume())
-                .end(JSON.stringify({ taskId: msg.taskId, ok: true, text: `echo: ${msg.text}` })),
+                .end(JSON.stringify({ taskId: msg.taskId, ok, text: ok ? `echo: ${msg.text}` : 'the turn failed' })),
             replyAfterMs,
           )
         }
@@ -472,5 +472,16 @@ describe('extended agent card', async () => {
       assert.equal(r.extended, true, `${transport}: ${r.error}`)
       assert.match(r.card.description, /3 tasks at once/)
     }
+  })
+})
+
+describe('a failed task', async () => {
+  const { url } = await serve({ ok: false })
+
+  test('ends failed with the reason in its status, and no answer', async () => {
+    const r = await client('send', url, 'x')
+    assert.equal(r.state, 'failed')
+    assert.deepEqual(r.artifacts ?? [], [])
+    assert.match(JSON.stringify(r), /the turn failed/)
   })
 })
