@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/fulgas/claude-a2a/compare/v0.3.1...v0.4.0) (2026-11-02)
+
+
+### Features
+
+* **plugin:** install the latest release instead of main ([010bef6](https://github.com/fulgas/claude-a2a/commit/010bef69c31e80b2986149a9d78fad30683116b4))
+
 ## [0.3.1](https://github.com/fulgas/claude-a2a/compare/v0.3.0...v0.3.1) (2026-11-02)
 
 
