@@ -215,6 +215,19 @@ describe('oidc', async () => {
     })
   }
 
+  test('a token without a subject names its client, and a delegated one the party it acts for', async () => {
+    const named = async claims => {
+      await client('send', url, 'x', '--token', await provider.sign({ claims }))
+      return callers.at(-1)
+    }
+    // Rauthy's client credentials: no sub, the client in azp. RFC 9068: client_id.
+    assert.equal(await named({ azp: 'alva' }), 'oidc:alva')
+    assert.equal(await named({ client_id: 'alva' }), 'oidc:alva')
+    // RFC 8693 token exchange: sub is who the call is for, act.sub who makes it.
+    assert.equal(await named({ sub: 'sample', azp: 'alva', act: { sub: 'alva' } }), 'oidc:sample via alva')
+    assert.equal(await named({}), 'oidc')
+  })
+
   test('a JWT for another audience, an expired one, one from another issuer and an HMAC one are refused', async () => {
     const expired = Math.floor(Date.now() / 1000) - 3600
     const hmac = new TextEncoder().encode('a-shared-secret-of-at-least-32-bytes!')
