@@ -21,7 +21,7 @@ How changes to the a2a plugin are made. What the plugin does and how it is built
 - A change starts with a test that fails for the right reason, then the code that makes it pass.
 - The wire (transports, auth, the agent card) is tested end to end in `bridge/a2a.test.mjs`, against the real bridge, and the client's authentication against a stand-in identity provider in `bridge/auth.test.mjs`. The hooks (tools, commands, options) are tested in `tests/register.test.ts`, against the engine.
 - `just check` stays green: `just test`, `just lint` (Biome, `claude plugin validate`, zizmor), `just audit` and `just docs`, the same checks CI runs.
-- `dist/a2a.mjs` is rebuilt (`just build`) and committed with every change to the bridge. Installs run no `npm install`, so CI fails when `dist/` does not match the source.
+- `dist/a2a.mjs` is never committed by hand. `just build` makes it for the tests and `just try`; the release workflow rebuilds and commits it in the release pull request, and CI refuses any other pull request that changes `dist/`.
 
 ## Conventional Commits
 
@@ -64,7 +64,7 @@ Releases follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 A release comes through a pull request. On every push to `main`, release-please (configured in `release-please-config.json`) keeps one pull request open, titled `chore(release): vX.Y.Z`. It sets the version in `package.json` and `.claude-plugin/plugin.json` and adds the release to `CHANGELOG.md`, its notes made from the commit subjects. The agent card reads its version from `package.json` at run time, so a release changes no code. Merging the pull request is the release: the release app tags `vX.Y.Z` on `main` and publishes the GitHub Release (`release.yml`). Releases are immutable: once published, a release and its tag name can never change or be used again. Nobody tags by hand.
 
-Renovate types its updates by what they change. Updates to the bridge's dependencies are bundled into `dist/a2a.mjs`, so they ship: `fix(deps)`, a patch release, and the pull request needs `npm run build` committed before CI passes. Build and lint tools are `chore(deps)`, and GitHub Actions and the Claude Code version CI tests against are `ci(deps)`. None of these three makes a release.
+Renovate types its updates by what they change. Updates to the bridge's dependencies are bundled into `dist/a2a.mjs`, so they ship: `fix(deps)`, a patch release, rebuilt into the bundle with the release. Build and lint tools are `chore(deps)`, and GitHub Actions and the Claude Code version CI tests against are `ci(deps)`. None of these three makes a release.
 
 ## Secrets
 

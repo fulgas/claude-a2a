@@ -8,7 +8,7 @@
   "semanticCommitScope": "deps",
   "packageRules": [
     {
-      "description": "The bridge's dependencies are bundled into dist/a2a.mjs, so they ship: fix(deps), a patch release. CI fails until `npm run build` is committed on the branch.",
+      "description": "The bridge's dependencies are bundled into dist/a2a.mjs, so they ship: fix(deps), a patch release, rebuilt into the bundle with the release.",
       "matchManagers": ["npm"],
       "matchDepTypes": ["dependencies"],
       "groupName": "Bridge dependencies",

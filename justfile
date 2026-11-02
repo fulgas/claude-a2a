@@ -9,7 +9,7 @@ setup:
     npm ci
     git config core.hooksPath .githooks
 
-# Bundle bridge/a2a.mjs into dist/a2a.mjs; commit the result with every bridge change.
+# Bundle bridge/a2a.mjs into dist/a2a.mjs, for the tests and `just try`. Never commit it: only a release does.
 build:
     npm run build
 
@@ -43,7 +43,6 @@ docs-serve:
 
 # Everything CI checks, before a pull request.
 check: lint test audit docs
-    git diff --exit-code dist/
 
 # A Claude Code session with this working copy loaded as a plugin.
 try:

@@ -7,7 +7,7 @@ Instructions for coding agents working on the a2a plugin. People start with [REA
 A Claude Code plugin that speaks the A2A protocol both ways: tools to call remote A2A agents, and `/a2a-serve` to expose a session as an A2A agent whose tasks run in that session: as prompts in the conversation, or as subagents. Two parts:
 
 - `hooks/register.ts`, the hooks module Claude Code runs (TypeScript, no Node, no sockets)
-- `bridge/a2a.mjs`, a Node process on `@a2a-js/sdk` that speaks JSON-RPC + SSE, HTTP+JSON and gRPC, bundled into the committed `dist/a2a.mjs`
+- `bridge/a2a.mjs`, a Node process on `@a2a-js/sdk` that speaks JSON-RPC + SSE, HTTP+JSON and gRPC, bundled into `dist/a2a.mjs`, which only a release commits
 
 ## Where the truth is
 
@@ -20,7 +20,7 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 | Command | Does |
 | --- | --- |
 | `just check` | Everything CI runs. Run before every pull request. |
-| `just build` | Bundles `bridge/a2a.mjs` into `dist/a2a.mjs`. Run after every bridge change and commit the result. |
+| `just build` | Bundles `bridge/a2a.mjs` into `dist/a2a.mjs`, for the tests and `just try`. Never commit `dist/`: the release workflow rebuilds it in the release pull request, and CI refuses any other pull request that changes it. |
 | `just test` | The bridge end to end over every transport (`bridge/a2a.test.mjs`) and the client's authentication (`bridge/auth.test.mjs`), then the hooks module against the engine (`tests/*.test.ts`). |
 | `just lint` | Biome, `claude plugin validate .` and zizmor on the workflows. `just fix` applies Biome's fixes. |
 | `just audit` | `npm audit` on what ships, and registry signatures and provenance for every package. |
