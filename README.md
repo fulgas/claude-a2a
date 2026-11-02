@@ -40,7 +40,7 @@ Every tool takes `transport` (`jsonrpc` \| `rest` \| `grpc`; the default is the 
 ## Server
 
 ```
-/a2a-serve [--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1]
+/a2a-serve [--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1] [--public-host NAME]
            [--api-key K] [--oidc-issuer URL --oidc-audience AUD [--required-scopes "S1 S2"]]
            [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK]
            [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20] [--name N]
@@ -78,6 +78,7 @@ Set defaults in `/plugin`, under the plugin's options, or in `settings.json`:
 | `grpcPort` | `41242` | gRPC port |
 | `transports` | `all` | `all`, `http` (JSON-RPC + HTTP+JSON) or `grpc`. In `grpc` mode the HTTP port serves only the agent card, which clients need to find the gRPC endpoint |
 | `host` | `127.0.0.1` | Bind address. Anything else requires `apiKey`, `oidcIssuer` or `tlsClientCa` |
+| `publicHost` | the bind address | The host name the agent card gives callers, when they reach the server by another: `host.docker.internal` for a caller in Docker, with `host` `0.0.0.0` |
 | `name` | `Claude Code` | Agent name in the card |
 | `taskMode` | `inline` | Where a task runs: `inline`, a prompt in this conversation, one at a time; `subagent`, a subagent with a fresh context; `fork`, a subagent that starts with a copy of this conversation |
 | `apiKey` | empty | API key callers may send in `X-API-Key`. Sensitive |

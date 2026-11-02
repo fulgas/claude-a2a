@@ -11,7 +11,7 @@
 //          $A2A_CARD_JWKS (a key set's URL or file) to trust, $A2A_REQUIRE_SIGNED_CARDS=1 to refuse unsigned cards.
 //          $A2A_TOKEN_CACHE holds tokens from earlier calls, as {"type":"token"} lines reported them.
 // Server:  a2a serve  --control <unix socket> [--host 127.0.0.1] [--port 41241] [--grpc-port 41242]
-//                     [--transports all|http|grpc] [--api-key K (or $A2A_SERVE_API_KEY)]
+//                     [--public-host NAME] [--transports all|http|grpc] [--api-key K (or $A2A_SERVE_API_KEY)]
 //                     [--oidc-issuer URL --oidc-audience AUD [--required-scopes "S1 S2"]]
 //                     [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK]
 //                     [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20]
@@ -274,6 +274,8 @@ class Caller {
 
 async function serve(opts) {
   const host = opts.host
+  // The address the card names, when callers reach the server by another than it listens on (a container's host).
+  const publicHost = opts['public-host'] || host
   const port = Number(opts.port)
   const grpcPort = Number(opts['grpc-port'])
   if (Boolean(opts['tls-cert']) !== Boolean(opts['tls-key'])) throw new Error('--tls-cert and --tls-key go together')
@@ -306,12 +308,12 @@ async function serve(opts) {
   const withHttp = opts.transports !== 'grpc'
   const withGrpc = opts.transports !== 'http'
 
-  const base = `${tls ? 'https' : 'http'}://${host}:${port}`
+  const base = `${tls ? 'https' : 'http'}://${publicHost}:${port}`
   const endpoints = {
     card: `${base}/${AGENT_CARD_PATH}`,
     ...(withHttp && { jsonrpc: `${base}/a2a/jsonrpc`, rest: `${base}/a2a/rest` }),
     // gRPC is named by its scheme: https:// over TLS, and host:port alone in the clear, as gRPC reads it.
-    ...(withGrpc && { grpc: `${tls ? 'https://' : ''}${host}:${grpcPort}` }),
+    ...(withGrpc && { grpc: `${tls ? 'https://' : ''}${publicHost}:${grpcPort}` }),
   }
   const card = AgentCard.fromJSON({
     name: opts.name,
@@ -572,6 +574,7 @@ const { positionals, values } = parseArgs({
     'tasks-per-minute': { type: 'string', default: '30' },
     'auth-failures-per-minute': { type: 'string', default: '20' },
     host: { type: 'string', default: '127.0.0.1' },
+    'public-host': { type: 'string' },
     port: { type: 'string', default: '41241' },
     'grpc-port': { type: 'string', default: '41242' },
     transports: { type: 'string', default: 'all' },

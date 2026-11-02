@@ -121,6 +121,7 @@ function serveArgs(options: PluginOptions, typedArgs: string[]) {
   ] as const) {
     if (options[option] !== undefined) saved.push(flag, String(options[option]))
   }
+  if (options.publicHost) saved.push('--public-host', String(options.publicHost))
   if (options.oidcIssuer) saved.push('--oidc-issuer', String(options.oidcIssuer))
   for (const [flag, option] of [
     ['--oidc-audience', 'oidcAudience'],
@@ -276,7 +277,7 @@ export const register: Register = (on, options) => {
         name: 'a2a-serve',
         description: 'Expose this session as an A2A agent (JSON-RPC/SSE, HTTP+JSON, gRPC)',
         argumentHint:
-          '[--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1] [--api-key K] [--oidc-issuer URL --oidc-audience AUD [--required-scopes S]] [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM] [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--task-mode inline|subagent|fork] [--name N]',
+          '[--port 41241] [--grpc-port 41242] [--transports all|http|grpc] [--host 127.0.0.1] [--public-host NAME] [--api-key K] [--oidc-issuer URL --oidc-audience AUD [--required-scopes S]] [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM] [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--task-mode inline|subagent|fork] [--name N]',
       }),
       $.command.register({ name: 'a2a-stop', description: 'Stop the A2A server' }),
     ])

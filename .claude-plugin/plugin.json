@@ -37,6 +37,12 @@
       "description": "127.0.0.1 keeps the server local. Any other address requires an API key, an OIDC issuer or a client CA.",
       "default": "127.0.0.1"
     },
+    "publicHost": {
+      "type": "string",
+      "title": "Server public host",
+      "description": "The host name the agent card gives callers, when they reach the server by another than its bind address: host.docker.internal for a caller in Docker. Empty: the bind address.",
+      "default": ""
+    },
     "name": {
       "type": "string",
       "title": "Agent name",
