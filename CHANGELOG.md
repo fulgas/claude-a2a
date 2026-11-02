@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/fulgas/claude-a2a/compare/v0.4.0...v0.4.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **plugin:** install over HTTPS, not SSH ([927c192](https://github.com/fulgas/claude-a2a/commit/927c192efd6d537fc062cbaf19c16ba736de49e2))
+
 ## [0.4.0](https://github.com/fulgas/claude-a2a/compare/v0.3.1...v0.4.0) (2026-11-02)
 
 
