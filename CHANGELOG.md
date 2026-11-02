@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.1](https://github.com/fulgas/claude-a2a/compare/v0.3.0...v0.3.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **bridge:** name gRPC over TLS as https:// on the agent card ([5083ac9](https://github.com/fulgas/claude-a2a/commit/5083ac9428bcda3bd804a69282b63a9ab91174d6))
+* **bridge:** name gRPC over TLS as https:// on the agent card ([426f13a](https://github.com/fulgas/claude-a2a/commit/426f13a00298ae7eb8ee21b234721a15fafbd5b6))
+* **deps:** rebuild the bridge with the updated lock file ([2ad900d](https://github.com/fulgas/claude-a2a/commit/2ad900db81551c4a518c13b72734ac8f7e0dc742))
+
 ## [0.3.0](https://github.com/fulgas/claude-a2a/compare/v0.2.0...v0.3.0) (2026-10-28)
 
 
