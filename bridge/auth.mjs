@@ -156,7 +156,11 @@ export async function serverAuth({ apiKey, issuer, audience, scopes = [], mtls =
         typeof payload.scope === 'string' ? payload.scope.split(' ') : Array.isArray(payload.scp) ? payload.scp : [],
       )
       if (!scopes.every(s => granted.has(s))) return { error: 'insufficient_scope' }
-      return { caller: payload.sub ? `oidc:${payload.sub}` : 'oidc' }
+      // A client-credentials token may name its client only in azp (Rauthy) or client_id (RFC 9068), and an
+      // exchanged one the party acting for the subject in act (RFC 8693).
+      const who = payload.sub ?? payload.azp ?? payload.client_id
+      const via = payload.act?.sub ? ` via ${payload.act.sub}` : ''
+      return { caller: who ? `oidc:${who}${via}` : 'oidc' }
     } catch (err) {
       if (err instanceof errors.JOSEError) return { error: 'invalid_token' }
       throw err

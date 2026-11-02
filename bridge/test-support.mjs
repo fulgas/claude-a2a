@@ -33,8 +33,9 @@ export async function authServer({ oidc = true } = {}) {
   const jwk = { ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' }
   const port = await freePort()
   const issuer = `http://127.0.0.1:${port}`
-  const sign = ({ aud = 'a2a-test', exp = '5m', key = privateKey, alg = 'RS256', iss = issuer, scope } = {}) =>
-    new SignJWT({ sub: 'agent-x', ...(scope && { scope }) })
+  // `claims` replaces the default subject, as for a machine-to-machine token that names its client otherwise.
+  const sign = ({ aud = 'a2a-test', exp = '5m', key = privateKey, alg = 'RS256', iss = issuer, scope, claims } = {}) =>
+    new SignJWT({ ...(claims ?? { sub: 'agent-x' }), ...(scope && { scope }) })
       .setProtectedHeader({ alg, kid: 'k1' })
       .setIssuer(iss)
       .setAudience(aud)
