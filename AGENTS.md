@@ -47,7 +47,7 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 - Every commit is signed with a key GitHub verifies for its author, and carries the committer's Signed-off-by: (Developer Certificate of Origin, git commit -s); main refuses anything else. Contributors sign with their own key.
 - Commit messages follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/): `type(scope)!: what changed, for the person using the plugin`, one logical change per commit, and a `BREAKING CHANGE:` footer for anything that breaks a tool, a command or an option. `.githooks/commit-msg` refuses anything else (`git config core.hooksPath .githooks`).
 - Releases follow Semantic Versioning from the commits. release-please keeps a release pull request open; merging it tags `vX.Y.Z` and publishes an immutable GitHub Release. Never tag by hand.
-- An assistant is credited the way the Linux kernel does it ([AI Coding Assistants](https://docs.kernel.org/process/coding-assistants.html)): an `Assisted-by: AGENT_NAME:MODEL_VERSION [TOOL1] [TOOL2]` trailer, such as `Assisted-by: Claude:claude-opus-5-5`, listing only specialised analysis tools, never git, compilers or editors. An assistant is never a co-author and never signs; the `Signed-off-by:` is the person who commits, who reviews the change and answers for it. No session or conversation links.
+- No AI attribution: commits and pull requests carry no `Assisted-by:` or `Co-Authored-By:` trailer for an assistant, and no generated-by line. The `Signed-off-by:` is the person who commits, who reviews the change and answers for it.
 
 ## Secrets
 
