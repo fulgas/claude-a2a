@@ -160,7 +160,7 @@ export async function serverAuth({ apiKey, issuer, audience, scopes = [], mtls =
       // exchanged one the party acting for the subject in act (RFC 8693).
       const who = payload.sub ?? payload.azp ?? payload.client_id
       const via = payload.act?.sub ? ` via ${payload.act.sub}` : ''
-      return { caller: who ? `oidc:${who}${via}` : 'oidc' }
+      return { caller: who ? `oidc:${who}${via}` : 'oidc', client: payload.azp ?? payload.client_id }
     } catch (err) {
       if (err instanceof errors.JOSEError) return { error: 'invalid_token' }
       throw err
