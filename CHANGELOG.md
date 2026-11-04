@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/fulgas/claude-a2a/compare/v0.6.0...v0.7.0) (2026-11-04)
+
+
+### Features
+
+* **server:** show the caller a gateway relays for, from a Secure Passport ([15fec7e](https://github.com/fulgas/claude-a2a/commit/15fec7e2f91afede5ed15a1a5812eb53ffd34de8))
+
+
+### Bug Fixes
+
+* **server:** a failed task carries no answer ([45ffac4](https://github.com/fulgas/claude-a2a/commit/45ffac4433e56e08769fbf9336c9ac5f4494828e))
+
 ## [0.6.0](https://github.com/fulgas/claude-a2a/compare/v0.5.0...v0.6.0) (2026-11-02)
 
 
