@@ -31,8 +31,11 @@ const base64url = buffer => Buffer.from(buffer).toString('base64url')
 export async function authServer({ oidc = true } = {}) {
   const { privateKey, publicKey } = await generateKeyPair('RS256')
   const jwk = { ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' }
-  const port = await freePort()
-  const issuer = `http://127.0.0.1:${port}`
+  // Bound first, on a port the OS picks, so no other test can take it in between.
+  const server = http.createServer((req, res) => handle(req, res))
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  after(() => server.close())
+  const issuer = `http://127.0.0.1:${server.address().port}`
   // `claims` replaces the default subject, as for a machine-to-machine token that names its client otherwise.
   const sign = ({ aud = 'a2a-test', exp = '5m', key = privateKey, alg = 'RS256', iss = issuer, scope, claims } = {}) =>
     new SignJWT({ ...(claims ?? { sub: 'agent-x' }), ...(scope && { scope }) })
@@ -68,7 +71,7 @@ export async function authServer({ oidc = true } = {}) {
     })
   const confidential = req => req.headers.authorization === `Basic ${Buffer.from('client:secret').toString('base64')}`
 
-  const server = http.createServer(async (req, res) => {
+  const handle = async (req, res) => {
     const url = new URL(req.url, issuer)
     if (url.pathname === '/.well-known/openid-configuration')
       return oidc ? json(res, 200, metadata) : json(res, 404, {})
@@ -138,9 +141,7 @@ export async function authServer({ oidc = true } = {}) {
       return json(res, 400, { error: 'unsupported_grant_type' })
     }
     json(res, 404, {})
-  })
-  await new Promise(resolve => server.listen(port, '127.0.0.1', resolve))
-  after(() => server.close())
+  }
   return { issuer, sign, grants }
 }
 

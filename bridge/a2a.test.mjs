@@ -51,8 +51,18 @@ const client = (...args) => clientWith({}, ...args)
 // `{ replyAfterMs }` holds each answer back, to keep tasks running, `{ ok: false }` fails each one, and `{ files }`
 // leaves those files in each task's outbox before answering.
 async function serve(...args) {
-  const { replyAfterMs = 0, ok = true, files = {} } = typeof args[0] === 'object' ? args.shift() : {}
-  const [port, grpcPort] = [await freePort(), await freePort()]
+  const options = typeof args[0] === 'object' ? args.shift() : {}
+  // A free port can be taken by another test between freePort() and the bridge binding it: then try fresh ones.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await serveOn(await freePort(), await freePort(), options, args)
+    } catch (err) {
+      if (attempt === 5 || !/EADDRINUSE/.test(err.message)) throw err
+    }
+  }
+}
+
+async function serveOn(port, grpcPort, { replyAfterMs = 0, ok = true, files = {} }, args) {
   const control = `/tmp/a2a-test-${randomUUID().slice(0, 8)}.sock`
   const child = spawn('node', [BRIDGE, 'serve', '--control', control, '--port', port, '--grpc-port', grpcPort, ...args])
   after(() => child.kill())
