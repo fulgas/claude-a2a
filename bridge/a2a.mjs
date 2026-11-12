@@ -13,9 +13,9 @@
 // Server:  a2a serve  --control <unix socket> [--host 127.0.0.1] [--port 41241] [--grpc-port 41242]
 //                     [--public-host NAME] [--transports all|http|grpc] [--api-key K (or $A2A_SERVE_API_KEY)]
 //                     [--oidc-issuer URL --oidc-audience AUD [--required-scopes "S1 S2"]]
-//                     [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK]
+//                     [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK] [--card-extensions FILE]
 //                     [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20]
-//                     [--outbox-max-files 15] [--outbox-max-file-mib 32] [--outbox-max-total-mib 90]
+//                     [--max-request-mib 16] [--outbox-max-files 15] [--outbox-max-file-mib 32] [--outbox-max-total-mib 90]
 //
 // Output is NDJSON on stdout. `serve` prints {"type":"task",...} for every incoming
 // task and waits for the plugin to POST the answer to /reply on the control socket. A client prints
@@ -55,6 +55,7 @@ import { rateLimit } from 'express-rate-limit'
 import { Agent, fetch as tlsFetch } from 'undici'
 
 import { cardSigner, clientAuth, perMinute, serverAuth, verifyCard } from './auth.mjs'
+import { writeInbox } from './inbox.mjs'
 import { OUTBOX_LIMITS, OUTPUT_MODES, readOutbox } from './outbox.mjs'
 
 // Read at run time, so a release bumps package.json alone and dist/ stays as built.
@@ -279,6 +280,29 @@ class Caller {
   }
 }
 
+// The extensions a card declares beyond the bridge's own, from a JSON file holding an array of A2A extension
+// declarations ({uri, description?, required?, params?}), checked before the card is built and signed.
+function cardExtensions(path) {
+  const list = JSON.parse(readFileSync(path, 'utf8'))
+  const wrong = why => new Error(`--card-extensions ${path}: ${why}`)
+  if (!Array.isArray(list)) throw wrong('the file must hold an array of extensions')
+  return list.map((e, i) => {
+    const at = `extension ${i + 1}`
+    if (!e || typeof e !== 'object' || Array.isArray(e)) throw wrong(`${at} must be an object`)
+    for (const key of Object.keys(e)) {
+      if (!['uri', 'description', 'required', 'params'].includes(key)) throw wrong(`${at} has an unknown key "${key}"`)
+    }
+    if (typeof e.uri !== 'string' || !URL.canParse(e.uri)) throw wrong(`${at}: uri must be an absolute URL`)
+    if (e.description !== undefined && typeof e.description !== 'string') throw wrong(`${at}: description must be text`)
+    if (e.required !== undefined && typeof e.required !== 'boolean')
+      throw wrong(`${at}: required must be true or false`)
+    if (e.params !== undefined && (!e.params || typeof e.params !== 'object' || Array.isArray(e.params))) {
+      throw wrong(`${at}: params must be an object`)
+    }
+    return e
+  })
+}
+
 async function serve(opts) {
   const host = opts.host
   // The address the card names, when callers reach the server by another than it listens on (a container's host).
@@ -317,13 +341,26 @@ async function serve(opts) {
     if (!Number.isInteger(n) || n < 1) throw new Error(`--${flag} must be a whole number above 0, not "${opts[flag]}"`)
     return n
   }
+  // The largest request taken, on every transport: the SDK's HTTP handlers take 100 KB and grpc-js 4 MiB by default.
+  const maxRequestMiB = wholeAboveZero('max-request-mib')
   const outboxLimits = {
     files: wholeAboveZero('outbox-max-files'),
     fileMiB: wholeAboveZero('outbox-max-file-mib'),
     totalMiB: wholeAboveZero('outbox-max-total-mib'),
   }
-  // One private folder (0700) per server start, holding each running task's outbox.
+  // One private folder (0700) per server start for each running task's outbox, and one for its inbox.
   const outboxes = mkdtempSync(join(tmpdir(), 'a2a-outbox-'))
+  const inboxes = mkdtempSync(join(tmpdir(), 'a2a-inbox-'))
+  const extensions = [
+    // A gateway's token names the gateway, so the caller it relays for comes in a Secure Passport.
+    ...(opts['oidc-issuer']
+      ? [{ uri: SECURE_PASSPORT, required: false, params: { supportedStateKeys: ['onBehalfOf'] } }]
+      : []),
+    ...(opts['card-extensions'] ? cardExtensions(opts['card-extensions']) : []),
+  ]
+  for (const [i, { uri }] of extensions.entries()) {
+    if (extensions.findIndex(e => e.uri === uri) !== i) throw new Error(`the card extension ${uri} is declared twice`)
+  }
   const withHttp = opts.transports !== 'grpc'
   const withGrpc = opts.transports !== 'http'
 
@@ -346,10 +383,7 @@ async function serve(opts) {
     capabilities: {
       streaming: true,
       extendedAgentCard: auth.isConfigured,
-      // A gateway's token names the gateway, so the caller it relays for comes in a Secure Passport.
-      ...(opts['oidc-issuer'] && {
-        extensions: [{ uri: SECURE_PASSPORT, required: false, params: { supportedStateKeys: ['onBehalfOf'] } }],
-      }),
+      ...(extensions.length > 0 && { extensions }),
     },
     defaultInputModes: ['text/plain'],
     defaultOutputModes: OUTPUT_MODES,
@@ -440,8 +474,13 @@ async function serve(opts) {
       // Named by the bridge, never by the task id a client may choose, so it cannot point outside the outboxes.
       const outbox = join(outboxes, randomUUID())
       mkdirSync(outbox, { mode: 0o700 })
-      out({ type: 'task', taskId, contextId, caller: shown, text: partsText(userMessage.parts), outbox })
-      let { ok, text, canceled } = await answer
+      // The message's large parts go to the inbox as files, so they reach the task without entering the prompt.
+      const inbox = join(inboxes, randomUUID())
+      mkdirSync(inbox, { mode: 0o700 })
+      const text = writeInbox(inbox, userMessage.parts)
+      out({ type: 'task', taskId, contextId, caller: shown, text, outbox })
+      let { ok, text: answerText, canceled } = await answer
+      rmSync(inbox, { recursive: true, force: true })
       pending.delete(taskId)
       running.delete(taskId)
       let artifacts = []
@@ -449,7 +488,7 @@ async function serve(opts) {
         if (ok && !canceled) artifacts = readOutbox(outbox, outboxLimits)
       } catch (err) {
         ok = false
-        text = `the task's outbox was refused: ${err.message}`
+        answerText = `the task's outbox was refused: ${err.message}`
       } finally {
         rmSync(outbox, { recursive: true, force: true })
       }
@@ -473,7 +512,7 @@ async function serve(opts) {
             TaskArtifactUpdateEvent.fromJSON({
               taskId,
               contextId,
-              artifact: { artifactId: randomUUID(), name: 'answer', parts: [{ text }] },
+              artifact: { artifactId: randomUUID(), name: 'answer', parts: [{ text: answerText }] },
               lastChunk: true,
             }),
           ),
@@ -481,7 +520,7 @@ async function serve(opts) {
         bus.publish(status(taskId, contextId, 'TASK_STATE_COMPLETED'))
       } else {
         // A failure is no answer: its reason goes in the status alone.
-        bus.publish(status(taskId, contextId, 'TASK_STATE_FAILED', text))
+        bus.publish(status(taskId, contextId, 'TASK_STATE_FAILED', answerText))
       }
       bus.finished()
     },
@@ -539,8 +578,10 @@ async function serve(opts) {
   app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(publicCard) }))
   if (signer) app.get('/.well-known/jwks.json', (_req, res) => res.json(signer.jwks))
   if (withHttp) {
-    app.use('/a2a/jsonrpc', limited, authenticated, jsonRpcHandler({ requestHandler, userBuilder }))
-    app.use('/a2a/rest', limited, authenticated, restHandler({ requestHandler, userBuilder }))
+    // Parsed here, after the credential check, up to maxRequestMiB; the SDK's own parser then leaves the body be.
+    const body = express.json({ limit: `${maxRequestMiB}mb`, type: ['application/json', 'application/a2a+json'] })
+    app.use('/a2a/jsonrpc', limited, authenticated, body, jsonRpcHandler({ requestHandler, userBuilder }))
+    app.use('/a2a/rest', limited, authenticated, body, restHandler({ requestHandler, userBuilder }))
   }
   // With a client CA the TLS layer refuses any connection without a certificate it signed, on both ports.
   const httpServer = tls
@@ -551,7 +592,7 @@ async function serve(opts) {
   const httpUp = new Promise(resolve => httpServer.once('listening', resolve))
 
   const grpcFailures = perMinute(authFailuresPerMinute)
-  const grpcServer = new grpc.Server()
+  const grpcServer = new grpc.Server({ 'grpc.max_receive_message_length': maxRequestMiB * 1024 * 1024 })
   grpcServer.addService(
     A2AService,
     grpcService({
@@ -622,6 +663,7 @@ async function serve(opts) {
 
   const stop = () => {
     rmSync(outboxes, { recursive: true, force: true })
+    rmSync(inboxes, { recursive: true, force: true })
     grpcServer.forceShutdown()
     httpServer.close()
     control.close()
@@ -652,11 +694,13 @@ const { positionals, values } = parseArgs({
     'max-concurrent-tasks': { type: 'string', default: '4' },
     'tasks-per-minute': { type: 'string', default: '30' },
     'auth-failures-per-minute': { type: 'string', default: '20' },
+    'max-request-mib': { type: 'string', default: '16' },
     'outbox-max-files': { type: 'string', default: String(OUTBOX_LIMITS.files) },
     'outbox-max-file-mib': { type: 'string', default: String(OUTBOX_LIMITS.fileMiB) },
     'outbox-max-total-mib': { type: 'string', default: String(OUTBOX_LIMITS.totalMiB) },
     host: { type: 'string', default: '127.0.0.1' },
     'public-host': { type: 'string' },
+    'card-extensions': { type: 'string' },
     port: { type: 'string', default: '41241' },
     'grpc-port': { type: 'string', default: '41242' },
     transports: { type: 'string', default: 'all' },

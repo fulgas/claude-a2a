@@ -124,6 +124,7 @@ function serveArgs(options: PluginOptions, typedArgs: string[]) {
     ['--max-concurrent-tasks', 'maxConcurrentTasks'],
     ['--tasks-per-minute', 'tasksPerMinute'],
     ['--auth-failures-per-minute', 'authFailuresPerMinute'],
+    ['--max-request-mib', 'maxRequestMiB'],
     ['--outbox-max-files', 'outboxMaxFiles'],
     ['--outbox-max-file-mib', 'outboxMaxFileMiB'],
     ['--outbox-max-total-mib', 'outboxMaxTotalMiB'],
@@ -139,6 +140,7 @@ function serveArgs(options: PluginOptions, typedArgs: string[]) {
     ['--tls-key', 'tlsKey'],
     ['--tls-client-ca', 'tlsClientCa'],
     ['--card-signing-key', 'cardSigningKey'],
+    ['--card-extensions', 'cardExtensions'],
   ] as const) {
     if (options[option]) saved.push(flag, String(options[option]))
   }

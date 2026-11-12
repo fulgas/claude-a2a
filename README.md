@@ -91,6 +91,8 @@ Set defaults in `/plugin`, under the plugin's options, or in `settings.json`:
 | `maxConcurrentTasks` | `4` | Incoming tasks that run at once; one more fails as busy. `0`: no limit |
 | `tasksPerMinute` | `30` | Tasks one caller may start in a minute. `0`: no limit |
 | `authFailuresPerMinute` | `20` | Failed sign-ins a client may make in a minute before it is refused (HTTP 429). `0`: no limit |
+| `cardExtensions` | empty | JSON file holding an array of A2A extensions the card declares, each `{uri, description?, required?, params?}`. Checked at start; declared beside Secure Passport, each once, and signed with the card |
+| `maxRequestMiB` | `16` | MiB in one request, on every transport; a larger one is refused (HTTP 413, gRPC `RESOURCE_EXHAUSTED`) |
 | `outboxMaxFiles` | `15` | Files a task may answer with from its outbox |
 | `outboxMaxFileMiB` | `32` | MiB in one outbox file; sent in base64, about a third more on the wire |
 | `outboxMaxTotalMiB` | `90` | MiB in a task's outbox, all files together |
@@ -121,6 +123,8 @@ The plugin covers the security of the [A2A specification](https://a2a-protocol.o
 - **Mutual TLS:** with `tlsClientCa`, every connection must present a client certificate that CA signed. It goes with any other credential that is on; alone, the certificate's CN names the caller.
 
 The agent card advertises whichever schemes are on, and stays public, so clients can learn what to send. A refusal is a 401 with `WWW-Authenticate` challenges, or a 403 for a token without a required scope. With `cardSigningKey`, the card is signed, and its public key is served at `/.well-known/jwks.json`. A signed-in caller gets the extended agent card, which adds the limits it will meet.
+
+**Large requests.** A text or data part over 64 KiB, and any part of bytes, does not enter the prompt: the bridge writes it to the task's inbox, `$TMPDIR/a2a-inbox-<random>/<random>/` (`/tmp` when `TMPDIR` is unset), as a read-only file, and the prompt names it in one line, such as `[part 2: data, 9.0 MiB, in /tmp/a2a-inbox-…/part-2.json]`. A data part's file holds its JSON as sent. Claude reads it with its tools (a settings.json rule such as `Read(//tmp/a2a-inbox-*/**)` allows that). The inbox is removed once the task is answered.
 
 **Answering with files.** Each task's prompt names an outbox folder of its own, at `$TMPDIR/a2a-outbox-<random>/<random>/` (`/tmp` when `TMPDIR` is unset): a settings.json rule such as `Write(//tmp/a2a-outbox-*/**)` can allow writing there and nowhere else. Every file Claude writes directly in it goes back as an artifact named after the file without its extension: a `.json` file must hold one JSON object and is sent as data (`pheme.plan.v1.json` becomes the data artifact `pheme.plan.v1`), any other file as bytes with its media type (`poster.jpg` becomes `poster`, `image/jpeg`). The text answer follows, as the artifact `answer`. Links, folders, and more than `outboxMaxFiles` files (15), a file over `outboxMaxFileMiB` (32) or over `outboxMaxTotalMiB` in all (90) fail the task. The outbox is removed once the task is answered.
 

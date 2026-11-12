@@ -3,12 +3,17 @@
 import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
 import { generateKeyPairSync, randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import { promisify } from 'node:util'
+
+import { SendMessageRequest, taskStateToJSON } from '@a2a-js/sdk'
+import { ClientFactory, ClientFactoryOptions, DefaultAgentCardResolver } from '@a2a-js/sdk/client'
+import { GrpcTransportFactory } from '@a2a-js/sdk/client/grpc'
+import * as grpc from '@grpc/grpc-js'
 
 import { authServer, certificates, freePort } from './test-support.mjs'
 
@@ -46,8 +51,18 @@ const client = (...args) => clientWith({}, ...args)
 // `{ replyAfterMs }` holds each answer back, to keep tasks running, `{ ok: false }` fails each one, and `{ files }`
 // leaves those files in each task's outbox before answering.
 async function serve(...args) {
-  const { replyAfterMs = 0, ok = true, files = {} } = typeof args[0] === 'object' ? args.shift() : {}
-  const [port, grpcPort] = [await freePort(), await freePort()]
+  const options = typeof args[0] === 'object' ? args.shift() : {}
+  // A free port can be taken by another test between freePort() and the bridge binding it: then try fresh ones.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await serveOn(await freePort(), await freePort(), options, args)
+    } catch (err) {
+      if (attempt === 5 || !/EADDRINUSE/.test(err.message)) throw err
+    }
+  }
+}
+
+async function serveOn(port, grpcPort, { replyAfterMs = 0, ok = true, files = {} }, args) {
   const control = `/tmp/a2a-test-${randomUUID().slice(0, 8)}.sock`
   const child = spawn('node', [BRIDGE, 'serve', '--control', control, '--port', port, '--grpc-port', grpcPort, ...args])
   after(() => child.kill())
@@ -55,6 +70,8 @@ async function serve(...args) {
   let buffered = ''
   const callers = []
   const outboxes = []
+  // Each task's prompt text, and the inbox files it names, read while the task runs.
+  const tasks = []
   const ready = new Promise((resolve, reject) => {
     child.stdout.on('data', chunk => {
       buffered += chunk
@@ -66,12 +83,20 @@ async function serve(...args) {
         if (msg.type === 'task') {
           callers.push(msg.caller)
           outboxes.push(msg.outbox)
+          const named = [...msg.text.matchAll(/ in (\/\S+)\]/g)].map(([, path]) => path)
+          tasks.push({ text: msg.text, files: named.map(path => ({ path, content: readFileSync(path, 'utf8') })) })
           for (const [name, content] of Object.entries(files)) writeFileSync(join(msg.outbox, name), content)
           setTimeout(
             () =>
               http
                 .request({ socketPath: control, path: '/reply', method: 'POST' }, res => res.resume())
-                .end(JSON.stringify({ taskId: msg.taskId, ok, text: ok ? `echo: ${msg.text}` : 'the turn failed' })),
+                .end(
+                  JSON.stringify({
+                    taskId: msg.taskId,
+                    ok,
+                    text: ok ? `echo: ${msg.text.slice(0, 1000)}` : 'the turn failed',
+                  }),
+                ),
             replyAfterMs,
           )
         }
@@ -79,7 +104,7 @@ async function serve(...args) {
     })
   })
   const up = await ready
-  return { url: new URL(up.card).origin, ready: up, callers, outboxes }
+  return { url: new URL(up.card).origin, ready: up, callers, outboxes, tasks }
 }
 
 describe('transports all', async () => {
@@ -613,6 +638,140 @@ describe('outbox limits', async () => {
     ]) {
       const r = await client('serve', '--control', '/tmp/a2a-unused.sock', flag, value)
       assert.match(r.error, new RegExp(`${flag} must be a whole number above 0`))
+    }
+  })
+})
+
+// A message with one data part this many bytes long, as a caller with a large request sends it.
+const bigMessage = bytes => ({
+  messageId: randomUUID(),
+  role: 'ROLE_USER',
+  parts: [{ data: { bundle: 'x'.repeat(bytes) } }],
+})
+const MiB = 1024 * 1024
+// The HTTP status a JSON-RPC or REST request of `bytes` gets, and the task's state when it is taken.
+const overHttp = async (url, binding, bytes) => {
+  const [path, body] =
+    binding === 'jsonrpc'
+      ? ['a2a/jsonrpc', { jsonrpc: '2.0', id: 1, method: 'SendMessage', params: { message: bigMessage(bytes) } }]
+      : ['a2a/rest/message:send', { message: bigMessage(bytes) }]
+  const res = await fetch(`${url}/${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'a2a-version': '1.0' },
+    body: JSON.stringify(body),
+  })
+  const json = await res.json().catch(() => ({}))
+  return { status: res.status, state: (json.result ?? json).task?.status?.state }
+}
+const overGrpc = async (url, bytes) => {
+  const factory = new ClientFactory(
+    ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
+      transports: [new GrpcTransportFactory({ grpcChannelCredentials: grpc.credentials.createInsecure() })],
+      preferredTransports: ['GRPC'],
+    }),
+  )
+  const c = await factory.createFromAgentCard(await new DefaultAgentCardResolver().resolve(url))
+  let state
+  // The SDK sends the task back with the caller's message in its history; historyLength 0 leaves it out, as a gRPC
+  // client with the default 4 MiB receive limit could not take it.
+  const request = SendMessageRequest.fromJSON({ message: bigMessage(bytes), configuration: { historyLength: 0 } })
+  for await (const ev of c.sendMessageStream(request)) {
+    const s = ev.payload?.value?.status?.state
+    if (s !== undefined) state = taskStateToJSON(s)
+  }
+  return state
+}
+
+describe('large requests', async () => {
+  const { url, tasks } = await serve('--transports', 'all')
+
+  test('a 9 MiB data part is taken over JSON-RPC and REST', async () => {
+    for (const binding of ['jsonrpc', 'rest']) {
+      const r = await overHttp(url, binding, 9 * MiB)
+      assert.equal(r.status, 200, binding)
+      assert.equal(r.state, 'TASK_STATE_COMPLETED', binding)
+    }
+  })
+
+  test('a 9 MiB data part reaches the task as a file in its inbox, and the prompt stays small', async () => {
+    await overHttp(url, 'jsonrpc', 9 * MiB)
+    const { text, files } = tasks.at(-1)
+    assert.ok(text.length < 300, text)
+    assert.match(text, /^\[part 1: data, 9\.0 MiB, in \/.+\/a2a-inbox-\w+\/[\w-]+\/part-1\.json\]$/)
+    assert.equal(JSON.parse(files[0].content).bundle.length, 9 * MiB)
+    assert.equal(existsSync(files[0].path), false)
+  })
+
+  test('a 9 MiB data part is taken over gRPC', async () => {
+    assert.equal(await overGrpc(url, 9 * MiB), 'TASK_STATE_COMPLETED')
+  })
+})
+
+describe('a request over maxRequestMiB', async () => {
+  const { url } = await serve('--max-request-mib', '1')
+
+  test('is refused with 413 over HTTP, and RESOURCE_EXHAUSTED over gRPC', async () => {
+    for (const binding of ['jsonrpc', 'rest'])
+      assert.equal((await overHttp(url, binding, 2 * MiB)).status, 413, binding)
+    await assert.rejects(overGrpc(url, 2 * MiB), /RESOURCE_EXHAUSTED|larger than max/i)
+  })
+
+  test('must be a whole number above 0', async () => {
+    const r = await client('serve', '--control', '/tmp/a2a-unused.sock', '--max-request-mib', '0')
+    assert.match(r.error, /--max-request-mib must be a whole number above 0/)
+  })
+})
+
+describe('card extensions from a file', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'a2a-ext-'))
+  const keyFile = join(dir, 'card.key')
+  writeFileSync(keyFile, generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }))
+  const studio = 'https://github.com/fulgas/pheme/tree/main/extensions/studio/v1'
+  const showrunner = 'https://github.com/fulgas/pheme/tree/main/extensions/showrunner/v1'
+  const extensions = [
+    { uri: studio, description: 'Makes videos', required: false, params: { formats: ['mp4'] } },
+    { uri: showrunner },
+  ]
+  const file = (name, content) => {
+    const path = join(dir, name)
+    writeFileSync(path, typeof content === 'string' ? content : JSON.stringify(content))
+    return path
+  }
+  const provider = await authServer()
+  const { url } = await serve(
+    ...['--card-extensions', file('extensions.json', extensions), '--card-signing-key', keyFile],
+    ...['--oidc-issuer', provider.issuer, '--oidc-audience', 'a2a-test'],
+  )
+
+  test('each is declared once, next to Secure Passport, in a card whose signature verifies', async () => {
+    const r = await client('card', url)
+    assert.equal(r.signature, 'verified')
+    const declared = r.card.capabilities.extensions
+    assert.deepEqual(
+      declared.map(e => e.uri),
+      ['https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport', studio, showrunner],
+    )
+    const declaredStudio = declared.find(e => e.uri === studio)
+    assert.equal(declaredStudio.description, 'Makes videos')
+    assert.deepEqual(declaredStudio.params, { formats: ['mp4'] })
+  })
+
+  test('a file that does not declare extensions well stops the server, saying why', async () => {
+    for (const [content, why] of [
+      ['{"uri":"x"}', /must hold an array/],
+      [[{ uri: 'not a url' }], /uri must be an absolute URL/],
+      [[{ uri: studio, required: 'no' }], /required must be true or false/],
+      [[{ uri: studio, params: [1] }], /params must be an object/],
+      [[{ uri: studio, mandatory: true }], /unknown key "mandatory"/],
+      [[{ uri: studio }, { uri: studio }], /declared twice/],
+      [[{ uri: 'https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport' }], /declared twice/],
+    ]) {
+      const r = await client(
+        'serve',
+        ...['--control', '/tmp/a2a-unused.sock', '--card-extensions', file('bad.json', content)],
+        ...['--oidc-issuer', provider.issuer, '--oidc-audience', 'a2a-test'],
+      )
+      assert.match(r.error, why)
     }
   })
 })
