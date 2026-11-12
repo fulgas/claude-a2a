@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/fulgas/claude-a2a/compare/v0.7.0...v0.8.0) (2026-11-12)
+
+
+### Features
+
+* **server:** answer a task with files, from its outbox ([c1fb01c](https://github.com/fulgas/claude-a2a/commit/c1fb01c5f4166eb006f484e2db0a522f4d7d64d6))
+* **server:** settings for the outbox limits ([6c24abb](https://github.com/fulgas/claude-a2a/commit/6c24abb74c31614f9c3364710f07c4d257d96b1b))
+
 ## [0.7.0](https://github.com/fulgas/claude-a2a/compare/v0.6.0...v0.7.0) (2026-11-04)
 
 
