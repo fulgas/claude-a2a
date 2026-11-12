@@ -65,7 +65,7 @@ flowchart TB
 - **Split by capability.** The hooks module does what only it can do: register tools and commands, spawn subagents, and read their answers. The bridge does what only Node can do: sockets, HTTP/2, SSE and gRPC.
 - **Use the official SDK.** The bridge is a thin layer over [`@a2a-js/sdk`](https://github.com/a2aproject/a2a-js). The protocol logic stays upstream.
 - **NDJSON between the two.** The bridge writes one JSON object per line on stdout. The plugin reads them as they arrive.
-- **The session as the server's brain.** An incoming task becomes a prompt in the conversation (`$.prompt.submit`), or a subagent (`$.agent.spawn`, a fork for `fork`), as `taskMode` says. The `turn.complete` answer of that turn or subagent becomes the task's artifact.
+- **The session as the server's brain.** An incoming task becomes a prompt in the conversation (`$.prompt.submit`), or a subagent (`$.agent.spawn`, a fork for `fork`), as `taskMode` says. The `turn.complete` answer of that turn or subagent becomes the task's `answer` artifact; files the task leaves in its outbox become artifacts of their own.
 
 ## 5. Building block view
 
@@ -205,7 +205,7 @@ sequenceDiagram
   else signed in and within the limits
     B-->>C: task (working)
   end
-  B->>P: {"type":"task", taskId, caller, text} line
+  B->>P: {"type":"task", taskId, caller, text, outbox} line
   alt taskMode inline
     P->>E: $.prompt.submit, framed with the task id
     E->>S: a turn of the conversation, once the person's turn ends
@@ -217,7 +217,7 @@ sequenceDiagram
   S-->>E: final answer
   E->>P: turn.complete {turnId or agentId, answer}
   P->>B: POST /reply {taskId, ok, text} on the control socket
-  B-->>C: artifact "answer", then status completed
+  B-->>C: an artifact per outbox file, artifact "answer", then status completed
 ```
 
 ### Starting the server
@@ -278,6 +278,8 @@ flowchart LR
 
 **Configuration.** The plugin's `userConfig` (the server's `port`, `grpcPort`, `transports`, `host`, `name`, `taskMode`, `apiKey`, `oidcIssuer`, `oidcAudience`, `requiredScopes`, `tlsCert`, `tlsKey`, `tlsClientCa`, `cardSigningKey`, `maxConcurrentTasks`, `tasksPerMinute`, `authFailuresPerMinute` and `autoServe`; the client's `clientApiKey`, `oauthClientId`, `oauthClientSecret`, `oauthScope`, `oauthAudience`, `oauthRedirectPort`, `clientUsername`, `clientPassword`, `clientTlsCa`, `clientTlsCert`, `clientTlsKey`, `trustedCardKeys` and `requireSignedCards`) lives in `pluginConfigs` in settings. The API keys, the Basic password and the OAuth secret are marked sensitive, so `/plugin` keeps them in secure storage. Keys and certificates are named by file path, never stored in settings. Flags typed after `/a2a-serve` override saved values for that run. Unset client options fall back to `A2A_API_KEY`, `A2A_TOKEN`, `A2A_HTTP_*`, `A2A_OAUTH_*`, `A2A_TLS_*` and `A2A_CARD_JWKS` in the environment.
 
+**Outbox.** Each task gets a folder of its own, mode 0700, named by the bridge (never by a task id a client may choose) under one private folder per server start. The prompt names it. When the task is answered, each regular file directly in it becomes one artifact named after the file without its extension: a `.json` file holding one JSON object is a data part, any other file a file part of its bytes with its media type. The bridge refuses links (`lstat`, then `O_NOFOLLOW` and `fstat`), folders and special files, and more than 15 files, 32 MiB in one file or 90 MiB in all; a refused outbox fails the task with the reason. The outbox is removed after the answer, and the folder of outboxes when the server stops. The card's `defaultOutputModes` lists the media types this can send.
+
 **Errors.** Every bridge failure becomes a `{"type":"error"}` line. The plugin turns it into a tool error the model can read. A turn or subagent that ends without an answer fails its A2A task with the reason.
 
 **Versioning.** One version for the plugin, `package.json` and the agent card. release-please keeps them in step from Conventional Commits.
@@ -329,6 +331,7 @@ flowchart LR
 - **Memory across tasks only inline.** With `subagent`, each task is a fresh subagent, so a follow-up in the same A2A context does not see the earlier turns; `fork` sees the conversation as it was, not other forks.
 - **Inline tasks wait.** An inline task waits while the person works, and runs one at a time; its caller sees it as working. A cancelled inline task that has not started yet still runs, unheard.
 - **Final answer only.** A caller sees the answer when the turn or subagent finishes, not its progress.
+- **Outbox limits.** One part per artifact, and no file over 32 MiB: a bigger file would need a URL the agent serves, not bytes in an event.
 - **Session-bound server.** The server lives as long as the session. There is no daemon mode.
 - **TLS is off by default.** Without `tlsCert` or a TLS proxy, an API key or a JWT can be read on the wire. There are no push notifications on the server side.
 - **Sign-ins block the call.** A device or browser sign-in holds the tool call until the person finishes or five minutes (or the device code's lifetime) pass.

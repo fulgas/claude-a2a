@@ -228,7 +228,10 @@ function bridgeWithTask(on: Parameters<Parameters<typeof test>[1]>[1], task = 'r
   const held = new Promise<void>(resolve => (release = resolve))
   on('process.spawn', async function* () {
     yield { stream: 'stdout' as const, text: '{"type":"ready","card":"c","jsonrpc":"j"}\n' }
-    yield { stream: 'stdout' as const, text: `{"type":"task","taskId":"task-1","caller":"api-key","text":"${task}"}\n` }
+    yield {
+      stream: 'stdout' as const,
+      text: `{"type":"task","taskId":"task-1","caller":"api-key","text":"${task}","outbox":"/tmp/a2a-outbox-t/o1"}\n`,
+    }
     await held
     return { value: { code: 0, signal: null } }
   })
@@ -259,6 +262,7 @@ test('by default a task runs in the main thread, and that turn answers it', asyn
   expect(submitted).toHaveLength(1)
   expect(submitted[0]).toContain('A2A task task-1 from api-key')
   expect(submitted[0]).toContain('review the diff')
+  expect(submitted[0]).toContain('/tmp/a2a-outbox-t/o1')
 
   await $.turn.start({ text: 'something the person typed', turnId: 'mine' })
   await $.turn.complete({
@@ -296,7 +300,7 @@ for (const [taskMode, subagentType] of [
 
       expect(ran.text).toContain(`taskMode ${taskMode}`)
       expect(spawned).toHaveLength(1)
-      expect(spawned[0].prompt).toBe('review the diff')
+      expect(spawned[0].prompt).toMatch(/^review the diff\n\n.*\/tmp\/a2a-outbox-t\/o1/s)
       // Under test the spawn arrives as the Agent tool's call.
       expect(spawned[0].subagent_type ?? spawned[0].subagentType).toBe(subagentType)
       release()

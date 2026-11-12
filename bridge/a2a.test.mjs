@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
 import { generateKeyPairSync, randomUUID } from 'node:crypto'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -43,9 +43,10 @@ const clientWith = async (env, ...args) => (await linesWith(env, ...args)).at(-1
 const client = (...args) => clientWith({}, ...args)
 
 // Starts `serve` and answers every task with "echo: <text>", as the plugin would; a leading
-// `{ replyAfterMs }` holds each answer back, to keep tasks running, and `{ ok: false }` fails each one.
+// `{ replyAfterMs }` holds each answer back, to keep tasks running, `{ ok: false }` fails each one, and `{ files }`
+// leaves those files in each task's outbox before answering.
 async function serve(...args) {
-  const { replyAfterMs = 0, ok = true } = typeof args[0] === 'object' ? args.shift() : {}
+  const { replyAfterMs = 0, ok = true, files = {} } = typeof args[0] === 'object' ? args.shift() : {}
   const [port, grpcPort] = [await freePort(), await freePort()]
   const control = `/tmp/a2a-test-${randomUUID().slice(0, 8)}.sock`
   const child = spawn('node', [BRIDGE, 'serve', '--control', control, '--port', port, '--grpc-port', grpcPort, ...args])
@@ -53,6 +54,7 @@ async function serve(...args) {
 
   let buffered = ''
   const callers = []
+  const outboxes = []
   const ready = new Promise((resolve, reject) => {
     child.stdout.on('data', chunk => {
       buffered += chunk
@@ -63,6 +65,8 @@ async function serve(...args) {
         if (msg.type === 'error') reject(new Error(msg.error))
         if (msg.type === 'task') {
           callers.push(msg.caller)
+          outboxes.push(msg.outbox)
+          for (const [name, content] of Object.entries(files)) writeFileSync(join(msg.outbox, name), content)
           setTimeout(
             () =>
               http
@@ -75,7 +79,7 @@ async function serve(...args) {
     })
   })
   const up = await ready
-  return { url: new URL(up.card).origin, ready: up, callers }
+  return { url: new URL(up.card).origin, ready: up, callers, outboxes }
 }
 
 describe('transports all', async () => {
@@ -554,5 +558,40 @@ describe('the caller a gateway relays for, in a Secure Passport', async () => {
 
   test("without a passport, the token's client is the caller", async () => {
     assert.deepEqual(await relay(undefined), { caller: 'oidc:alva', echoed: null })
+  })
+})
+
+describe("a task's outbox", async () => {
+  const files = { 'pheme.plan.v1.json': '{"title":"x"}', 'poster.jpg': Buffer.from([0xff, 0xd8, 0xff]) }
+  const { url, outboxes } = await serve({ files })
+
+  for (const transport of ['jsonrpc', 'rest', 'grpc']) {
+    test(`${transport}: each file is a named artifact, then the answer, and the outbox is gone`, async () => {
+      const r = await client('send', url, 'x', '--transport', transport)
+      assert.equal(r.state, 'completed', r.error)
+      assert.deepEqual(r.artifacts, [
+        { name: 'pheme.plan.v1', text: '{"title":"x"}' },
+        { name: 'poster', text: '[3 bytes image/jpeg poster.jpg]' },
+        { name: 'answer', text: 'echo: x' },
+      ])
+      assert.equal(existsSync(outboxes.at(-1)), false)
+    })
+  }
+
+  test('the card names what the agent can answer with', async () => {
+    const { card } = await client('card', url)
+    assert.ok(['text/plain', 'application/json', 'video/mp4'].every(m => card.defaultOutputModes.includes(m)))
+  })
+})
+
+describe("a task's outbox that is refused", async () => {
+  const { url, outboxes } = await serve({ files: { 'reply.json': '[1]' } })
+
+  test('fails the task with the reason, and no answer', async () => {
+    const r = await client('send', url, 'x')
+    assert.equal(r.state, 'failed')
+    assert.deepEqual(r.artifacts ?? [], [])
+    assert.match(JSON.stringify(r), /outbox was refused: reply\.json: not one JSON object/)
+    assert.equal(existsSync(outboxes.at(-1)), false)
   })
 })

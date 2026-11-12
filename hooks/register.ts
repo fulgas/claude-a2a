@@ -83,6 +83,12 @@ const queued = new Map<string, string>()
 const inlineHeader = (taskId: string, caller: unknown) =>
   `A2A task ${taskId} from ${caller}. Your final reply this turn goes back to them as the task's answer.`
 
+// Where a task may leave files to answer with, each sent back as an artifact of its own.
+const withOutbox = (text: string, outbox: unknown) =>
+  outbox
+    ? `${text}\n\nTo answer with files as well as text, write them directly in ${outbox}: each file becomes an artifact named after it without its extension, and a .json file must hold one JSON object, sent as data. No links or folders there; anything else fails the task.`
+    : text
+
 async function reply($: EngineInterface, taskId: string, ok: boolean, text: string) {
   if (!server) return
   await $.http.fetch('http://a2a/reply', {
@@ -159,7 +165,7 @@ function startServer(
             resolve(msg)
           } else if (msg.type === 'task') {
             const taskId = String(msg.taskId)
-            const text = String(msg.text)
+            const text = withOutbox(String(msg.text), msg.outbox)
             $.ui.toast(`A2A task from ${msg.caller}: ${text.slice(0, 60)}`)
             if (taskMode === 'inline') {
               // The prompt waits its turn while the person is working; turn.start ties it to the turn that runs it.
