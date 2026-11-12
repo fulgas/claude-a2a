@@ -595,3 +595,24 @@ describe("a task's outbox that is refused", async () => {
     assert.equal(existsSync(outboxes.at(-1)), false)
   })
 })
+
+describe('outbox limits', async () => {
+  const { url } = await serve({ files: { 'a.txt': 'x', 'b.txt': 'x' } }, '--outbox-max-files', '1')
+
+  test('are set when the server starts', async () => {
+    const r = await client('send', url, 'x')
+    assert.equal(r.state, 'failed')
+    assert.match(JSON.stringify(r), /more than 1 files/)
+  })
+
+  test('must be whole numbers above zero', async () => {
+    for (const [flag, value] of [
+      ['--outbox-max-files', '0'],
+      ['--outbox-max-file-mib', 'lots'],
+      ['--outbox-max-total-mib', '1.5'],
+    ]) {
+      const r = await client('serve', '--control', '/tmp/a2a-unused.sock', flag, value)
+      assert.match(r.error, new RegExp(`${flag} must be a whole number above 0`))
+    }
+  })
+})

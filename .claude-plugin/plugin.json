@@ -127,6 +127,24 @@
       "description": "Failed sign-ins a client may make in a minute before it is refused outright, so a key cannot be guessed. 0: no limit.",
       "default": 20
     },
+    "outboxMaxFiles": {
+      "type": "number",
+      "title": "Server: files in a task's outbox",
+      "description": "The most files a task may answer with from its outbox; more fails the task.",
+      "default": 15
+    },
+    "outboxMaxFileMiB": {
+      "type": "number",
+      "title": "Server: MiB in one outbox file",
+      "description": "The largest file a task may answer with, in MiB. Sent in base64, so a caller receives about a third more.",
+      "default": 32
+    },
+    "outboxMaxTotalMiB": {
+      "type": "number",
+      "title": "Server: MiB in a task's outbox",
+      "description": "The most a task may answer with from its outbox, in MiB, all files together.",
+      "default": 90
+    },
     "autoServe": {
       "type": "boolean",
       "title": "Start server with each session",

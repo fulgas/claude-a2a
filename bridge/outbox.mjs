@@ -4,11 +4,10 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync } from 'node:fs'
 import { extname, join, parse } from 'node:path'
 
-// Fixed, to fit a strict caller: 15 files and the text answer are 16 artifacts; 32 MiB in base64 stays under 44 MiB
-// for one event; 90 MiB in all under 128 MiB for one stream.
-export const MAX_FILES = 15
-export const MAX_FILE_BYTES = 32 * 1024 * 1024
-export const MAX_TOTAL_BYTES = 90 * 1024 * 1024
+// The defaults fit a strict caller: 15 files and the text answer are 16 artifacts; 32 MiB in base64 stays under 44 MiB
+// for one event; 90 MiB in all under 128 MiB for one stream. The server's options raise or lower them.
+export const OUTBOX_LIMITS = { files: 15, fileMiB: 32, totalMiB: 90 }
+const MiB = 1024 * 1024
 
 const MEDIA_TYPES = {
   '.mp4': 'video/mp4',
@@ -34,9 +33,9 @@ export const OUTPUT_MODES = [
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
 /** The artifacts in `dir`, as JSON for TaskArtifactUpdateEvent; throws why the outbox is refused. */
-export function readOutbox(dir) {
+export function readOutbox(dir, limits = OUTBOX_LIMITS) {
   const files = readdirSync(dir)
-  if (files.length > MAX_FILES) throw new Error(`the outbox holds more than ${MAX_FILES} files`)
+  if (files.length > limits.files) throw new Error(`the outbox holds more than ${limits.files} files`)
   const names = new Set()
   let total = 0
   return files.map(file => {
@@ -47,9 +46,9 @@ export function readOutbox(dir) {
     if (!NAME.test(name)) throw new Error(`${file}: not a valid artifact name`)
     if (names.has(name)) throw new Error(`two files are named ${name}`)
     names.add(name)
-    const bytes = readRegular(path, file)
+    const bytes = readRegular(path, file, limits.fileMiB)
     total += bytes.length
-    if (total > MAX_TOTAL_BYTES) throw new Error(`the outbox holds over ${MAX_TOTAL_BYTES / 1024 / 1024} MiB in all`)
+    if (total > limits.totalMiB * MiB) throw new Error(`the outbox holds over ${limits.totalMiB} MiB in all`)
     const ext = extname(file).toLowerCase()
     if (ext === '.json') return { name, parts: [{ data: jsonObject(bytes, file) }] }
     return {
@@ -61,7 +60,7 @@ export function readOutbox(dir) {
   })
 }
 
-function readRegular(path, file) {
+function readRegular(path, file, maxMiB) {
   let fd
   try {
     fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
@@ -72,7 +71,7 @@ function readRegular(path, file) {
   try {
     const stat = fstatSync(fd)
     if (!stat.isFile()) throw new Error(`${file}: not a regular file`)
-    if (stat.size > MAX_FILE_BYTES) throw new Error(`${file}: over ${MAX_FILE_BYTES / 1024 / 1024} MiB`)
+    if (stat.size > maxMiB * MiB) throw new Error(`${file}: over ${maxMiB} MiB`)
     return readFileSync(fd)
   } finally {
     closeSync(fd)

@@ -15,6 +15,7 @@
 //                     [--oidc-issuer URL --oidc-audience AUD [--required-scopes "S1 S2"]]
 //                     [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK]
 //                     [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20]
+//                     [--outbox-max-files 15] [--outbox-max-file-mib 32] [--outbox-max-total-mib 90]
 //
 // Output is NDJSON on stdout. `serve` prints {"type":"task",...} for every incoming
 // task and waits for the plugin to POST the answer to /reply on the control socket. A client prints
@@ -54,7 +55,7 @@ import { rateLimit } from 'express-rate-limit'
 import { Agent, fetch as tlsFetch } from 'undici'
 
 import { cardSigner, clientAuth, perMinute, serverAuth, verifyCard } from './auth.mjs'
-import { OUTPUT_MODES, readOutbox } from './outbox.mjs'
+import { OUTBOX_LIMITS, OUTPUT_MODES, readOutbox } from './outbox.mjs'
 
 // Read at run time, so a release bumps package.json alone and dist/ stays as built.
 // From bridge/ and from dist/ alike, package.json is one folder up.
@@ -311,6 +312,16 @@ async function serve(opts) {
   const callerTasks = perMinute(Number(opts['tasks-per-minute']))
   const authFailuresPerMinute = Number(opts['auth-failures-per-minute'])
   const running = new Set()
+  const wholeAboveZero = flag => {
+    const n = Number(opts[flag])
+    if (!Number.isInteger(n) || n < 1) throw new Error(`--${flag} must be a whole number above 0, not "${opts[flag]}"`)
+    return n
+  }
+  const outboxLimits = {
+    files: wholeAboveZero('outbox-max-files'),
+    fileMiB: wholeAboveZero('outbox-max-file-mib'),
+    totalMiB: wholeAboveZero('outbox-max-total-mib'),
+  }
   // One private folder (0700) per server start, holding each running task's outbox.
   const outboxes = mkdtempSync(join(tmpdir(), 'a2a-outbox-'))
   const withHttp = opts.transports !== 'grpc'
@@ -435,7 +446,7 @@ async function serve(opts) {
       running.delete(taskId)
       let artifacts = []
       try {
-        if (ok && !canceled) artifacts = readOutbox(outbox)
+        if (ok && !canceled) artifacts = readOutbox(outbox, outboxLimits)
       } catch (err) {
         ok = false
         text = `the task's outbox was refused: ${err.message}`
@@ -641,6 +652,9 @@ const { positionals, values } = parseArgs({
     'max-concurrent-tasks': { type: 'string', default: '4' },
     'tasks-per-minute': { type: 'string', default: '30' },
     'auth-failures-per-minute': { type: 'string', default: '20' },
+    'outbox-max-files': { type: 'string', default: String(OUTBOX_LIMITS.files) },
+    'outbox-max-file-mib': { type: 'string', default: String(OUTBOX_LIMITS.fileMiB) },
+    'outbox-max-total-mib': { type: 'string', default: String(OUTBOX_LIMITS.totalMiB) },
     host: { type: 'string', default: '127.0.0.1' },
     'public-host': { type: 'string' },
     port: { type: 'string', default: '41241' },

@@ -124,6 +124,9 @@ function serveArgs(options: PluginOptions, typedArgs: string[]) {
     ['--max-concurrent-tasks', 'maxConcurrentTasks'],
     ['--tasks-per-minute', 'tasksPerMinute'],
     ['--auth-failures-per-minute', 'authFailuresPerMinute'],
+    ['--outbox-max-files', 'outboxMaxFiles'],
+    ['--outbox-max-file-mib', 'outboxMaxFileMiB'],
+    ['--outbox-max-total-mib', 'outboxMaxTotalMiB'],
   ] as const) {
     if (options[option] !== undefined) saved.push(flag, String(options[option]))
   }

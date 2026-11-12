@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
 
-import { MAX_FILE_BYTES, MAX_FILES, readOutbox } from './outbox.mjs'
+import { OUTBOX_LIMITS, readOutbox } from './outbox.mjs'
 
 const outbox = files => {
   const dir = mkdtempSync(join(tmpdir(), 'a2a-outbox-test-'))
@@ -54,11 +54,17 @@ describe('a task outbox', () => {
     assert.throws(() => readOutbox(outbox({ 'reply.json': '{}', 'reply.txt': 'x' })), /two files are named reply/)
   })
 
+  test('the limits default to 15 files, 32 MiB in one and 90 MiB in all', () => {
+    assert.deepEqual(OUTBOX_LIMITS, { files: 15, fileMiB: 32, totalMiB: 90 })
+  })
+
   test('more files, a bigger file or more bytes than the limits fail the task', () => {
-    const many = Object.fromEntries(Array.from({ length: MAX_FILES + 1 }, (_, i) => [`f${i}.txt`, 'x']))
-    assert.throws(() => readOutbox(outbox(many)), /more than 15 files/)
-    assert.throws(() => readOutbox(outbox({ 'big.bin': Buffer.alloc(MAX_FILE_BYTES + 1) })), /big\.bin: over 32 MiB/)
-    const heavy = Object.fromEntries(Array.from({ length: 3 }, (_, i) => [`f${i}.bin`, Buffer.alloc(MAX_FILE_BYTES)]))
-    assert.throws(() => readOutbox(outbox(heavy)), /over 90 MiB in all/)
+    const limits = { files: 2, fileMiB: 1, totalMiB: 2 }
+    const MiB = 1024 * 1024
+    assert.throws(() => readOutbox(outbox({ 'a.txt': 'x', 'b.txt': 'x', 'c.txt': 'x' }), limits), /more than 2 files/)
+    assert.throws(() => readOutbox(outbox({ 'big.bin': Buffer.alloc(MiB + 1) }), limits), /big\.bin: over 1 MiB/)
+    const heavy = { 'a.bin': Buffer.alloc(MiB), 'b.bin': Buffer.alloc(MiB), 'c.json': '{}' }
+    assert.throws(() => readOutbox(outbox(heavy), { ...limits, files: 3 }), /over 2 MiB in all/)
+    assert.equal(readOutbox(outbox({ 'a.bin': Buffer.alloc(MiB), 'b.bin': Buffer.alloc(MiB) }), limits).length, 2)
   })
 })

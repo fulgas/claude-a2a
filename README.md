@@ -91,6 +91,9 @@ Set defaults in `/plugin`, under the plugin's options, or in `settings.json`:
 | `maxConcurrentTasks` | `4` | Incoming tasks that run at once; one more fails as busy. `0`: no limit |
 | `tasksPerMinute` | `30` | Tasks one caller may start in a minute. `0`: no limit |
 | `authFailuresPerMinute` | `20` | Failed sign-ins a client may make in a minute before it is refused (HTTP 429). `0`: no limit |
+| `outboxMaxFiles` | `15` | Files a task may answer with from its outbox |
+| `outboxMaxFileMiB` | `32` | MiB in one outbox file; sent in base64, about a third more on the wire |
+| `outboxMaxTotalMiB` | `90` | MiB in a task's outbox, all files together |
 | `autoServe` | `false` | Start the server when a session starts |
 | `clientApiKey` | `$A2A_API_KEY` | API key sent to agents whose card asks for one. Sensitive |
 | `oauthClientId`, `oauthClientSecret` | `$A2A_OAUTH_CLIENT_ID`, `$A2A_OAUTH_CLIENT_SECRET` | OAuth2 client for the client-credentials grant. The secret is sensitive |
@@ -119,7 +122,7 @@ The plugin covers the security of the [A2A specification](https://a2a-protocol.o
 
 The agent card advertises whichever schemes are on, and stays public, so clients can learn what to send. A refusal is a 401 with `WWW-Authenticate` challenges, or a 403 for a token without a required scope. With `cardSigningKey`, the card is signed, and its public key is served at `/.well-known/jwks.json`. A signed-in caller gets the extended agent card, which adds the limits it will meet.
 
-**Answering with files.** Each task's prompt names an outbox folder of its own. Every file Claude writes directly in it goes back as an artifact named after the file without its extension: a `.json` file must hold one JSON object and is sent as data (`pheme.plan.v1.json` becomes the data artifact `pheme.plan.v1`), any other file as bytes with its media type (`poster.jpg` becomes `poster`, `image/jpeg`). The text answer follows, as the artifact `answer`. Links, folders, more than 15 files, a file over 32 MiB or over 90 MiB in all fail the task. The outbox is removed once the task is answered.
+**Answering with files.** Each task's prompt names an outbox folder of its own. Every file Claude writes directly in it goes back as an artifact named after the file without its extension: a `.json` file must hold one JSON object and is sent as data (`pheme.plan.v1.json` becomes the data artifact `pheme.plan.v1`), any other file as bytes with its media type (`poster.jpg` becomes `poster`, `image/jpeg`). The text answer follows, as the artifact `answer`. Links, folders, and more than `outboxMaxFiles` files (15), a file over `outboxMaxFileMiB` (32) or over `outboxMaxTotalMiB` in all (90) fail the task. The outbox is removed once the task is answered.
 
 **Where tasks run.** With `taskMode` `inline` (the default), a task is a prompt in your conversation: you see it and its answer in the transcript, it waits until your own turn ends, and Claude answers it with everything the conversation holds. `fork` gives a subagent a copy of the conversation; `subagent` gives it none. **With `inline` or `fork`, anyone allowed to send tasks can ask for what is in your conversation**, pasted secrets included: use `subagent` when callers should not see it.
 
