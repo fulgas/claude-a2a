@@ -124,6 +124,7 @@ function serveArgs(options: PluginOptions, typedArgs: string[]) {
     ['--max-concurrent-tasks', 'maxConcurrentTasks'],
     ['--tasks-per-minute', 'tasksPerMinute'],
     ['--auth-failures-per-minute', 'authFailuresPerMinute'],
+    ['--max-request-mib', 'maxRequestMiB'],
     ['--outbox-max-files', 'outboxMaxFiles'],
     ['--outbox-max-file-mib', 'outboxMaxFileMiB'],
     ['--outbox-max-total-mib', 'outboxMaxTotalMiB'],

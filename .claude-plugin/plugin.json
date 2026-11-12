@@ -127,6 +127,12 @@
       "description": "Failed sign-ins a client may make in a minute before it is refused outright, so a key cannot be guessed. 0: no limit.",
       "default": 20
     },
+    "maxRequestMiB": {
+      "type": "number",
+      "title": "Server: MiB in one request",
+      "description": "The largest request the server takes, in MiB, on every transport; a larger one is refused (HTTP 413, gRPC RESOURCE_EXHAUSTED).",
+      "default": 16
+    },
     "outboxMaxFiles": {
       "type": "number",
       "title": "Server: files in a task's outbox",

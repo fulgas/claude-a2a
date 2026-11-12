@@ -10,6 +10,11 @@ import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import { promisify } from 'node:util'
 
+import { SendMessageRequest, taskStateToJSON } from '@a2a-js/sdk'
+import { ClientFactory, ClientFactoryOptions, DefaultAgentCardResolver } from '@a2a-js/sdk/client'
+import { GrpcTransportFactory } from '@a2a-js/sdk/client/grpc'
+import * as grpc from '@grpc/grpc-js'
+
 import { authServer, certificates, freePort } from './test-support.mjs'
 
 const BRIDGE = new URL('../dist/a2a.mjs', import.meta.url).pathname
@@ -71,7 +76,13 @@ async function serve(...args) {
             () =>
               http
                 .request({ socketPath: control, path: '/reply', method: 'POST' }, res => res.resume())
-                .end(JSON.stringify({ taskId: msg.taskId, ok, text: ok ? `echo: ${msg.text}` : 'the turn failed' })),
+                .end(
+                  JSON.stringify({
+                    taskId: msg.taskId,
+                    ok,
+                    text: ok ? `echo: ${msg.text.slice(0, 1000)}` : 'the turn failed',
+                  }),
+                ),
             replyAfterMs,
           )
         }
@@ -614,5 +625,76 @@ describe('outbox limits', async () => {
       const r = await client('serve', '--control', '/tmp/a2a-unused.sock', flag, value)
       assert.match(r.error, new RegExp(`${flag} must be a whole number above 0`))
     }
+  })
+})
+
+// A message with one data part this many bytes long, as a caller with a large request sends it.
+const bigMessage = bytes => ({
+  messageId: randomUUID(),
+  role: 'ROLE_USER',
+  parts: [{ data: { bundle: 'x'.repeat(bytes) } }],
+})
+const MiB = 1024 * 1024
+// The HTTP status a JSON-RPC or REST request of `bytes` gets, and the task's state when it is taken.
+const overHttp = async (url, binding, bytes) => {
+  const [path, body] =
+    binding === 'jsonrpc'
+      ? ['a2a/jsonrpc', { jsonrpc: '2.0', id: 1, method: 'SendMessage', params: { message: bigMessage(bytes) } }]
+      : ['a2a/rest/message:send', { message: bigMessage(bytes) }]
+  const res = await fetch(`${url}/${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'a2a-version': '1.0' },
+    body: JSON.stringify(body),
+  })
+  const json = await res.json().catch(() => ({}))
+  return { status: res.status, state: (json.result ?? json).task?.status?.state }
+}
+const overGrpc = async (url, bytes) => {
+  const factory = new ClientFactory(
+    ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
+      transports: [new GrpcTransportFactory({ grpcChannelCredentials: grpc.credentials.createInsecure() })],
+      preferredTransports: ['GRPC'],
+    }),
+  )
+  const c = await factory.createFromAgentCard(await new DefaultAgentCardResolver().resolve(url))
+  let state
+  // The SDK sends the task back with the caller's message in its history; historyLength 0 leaves it out, as a gRPC
+  // client with the default 4 MiB receive limit could not take it.
+  const request = SendMessageRequest.fromJSON({ message: bigMessage(bytes), configuration: { historyLength: 0 } })
+  for await (const ev of c.sendMessageStream(request)) {
+    const s = ev.payload?.value?.status?.state
+    if (s !== undefined) state = taskStateToJSON(s)
+  }
+  return state
+}
+
+describe('large requests', async () => {
+  const { url } = await serve('--transports', 'all')
+
+  test('a 9 MiB data part is taken over JSON-RPC and REST', async () => {
+    for (const binding of ['jsonrpc', 'rest']) {
+      const r = await overHttp(url, binding, 9 * MiB)
+      assert.equal(r.status, 200, binding)
+      assert.equal(r.state, 'TASK_STATE_COMPLETED', binding)
+    }
+  })
+
+  test('a 9 MiB data part is taken over gRPC', async () => {
+    assert.equal(await overGrpc(url, 9 * MiB), 'TASK_STATE_COMPLETED')
+  })
+})
+
+describe('a request over maxRequestMiB', async () => {
+  const { url } = await serve('--max-request-mib', '1')
+
+  test('is refused with 413 over HTTP, and RESOURCE_EXHAUSTED over gRPC', async () => {
+    for (const binding of ['jsonrpc', 'rest'])
+      assert.equal((await overHttp(url, binding, 2 * MiB)).status, 413, binding)
+    await assert.rejects(overGrpc(url, 2 * MiB), /RESOURCE_EXHAUSTED|larger than max/i)
+  })
+
+  test('must be a whole number above 0', async () => {
+    const r = await client('serve', '--control', '/tmp/a2a-unused.sock', '--max-request-mib', '0')
+    assert.match(r.error, /--max-request-mib must be a whole number above 0/)
   })
 })

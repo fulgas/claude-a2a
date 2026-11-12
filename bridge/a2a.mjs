@@ -15,7 +15,7 @@
 //                     [--oidc-issuer URL --oidc-audience AUD [--required-scopes "S1 S2"]]
 //                     [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK]
 //                     [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20]
-//                     [--outbox-max-files 15] [--outbox-max-file-mib 32] [--outbox-max-total-mib 90]
+//                     [--max-request-mib 16] [--outbox-max-files 15] [--outbox-max-file-mib 32] [--outbox-max-total-mib 90]
 //
 // Output is NDJSON on stdout. `serve` prints {"type":"task",...} for every incoming
 // task and waits for the plugin to POST the answer to /reply on the control socket. A client prints
@@ -317,6 +317,8 @@ async function serve(opts) {
     if (!Number.isInteger(n) || n < 1) throw new Error(`--${flag} must be a whole number above 0, not "${opts[flag]}"`)
     return n
   }
+  // The largest request taken, on every transport: the SDK's HTTP handlers take 100 KB and grpc-js 4 MiB by default.
+  const maxRequestMiB = wholeAboveZero('max-request-mib')
   const outboxLimits = {
     files: wholeAboveZero('outbox-max-files'),
     fileMiB: wholeAboveZero('outbox-max-file-mib'),
@@ -539,8 +541,10 @@ async function serve(opts) {
   app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(publicCard) }))
   if (signer) app.get('/.well-known/jwks.json', (_req, res) => res.json(signer.jwks))
   if (withHttp) {
-    app.use('/a2a/jsonrpc', limited, authenticated, jsonRpcHandler({ requestHandler, userBuilder }))
-    app.use('/a2a/rest', limited, authenticated, restHandler({ requestHandler, userBuilder }))
+    // Parsed here, after the credential check, up to maxRequestMiB; the SDK's own parser then leaves the body be.
+    const body = express.json({ limit: `${maxRequestMiB}mb`, type: ['application/json', 'application/a2a+json'] })
+    app.use('/a2a/jsonrpc', limited, authenticated, body, jsonRpcHandler({ requestHandler, userBuilder }))
+    app.use('/a2a/rest', limited, authenticated, body, restHandler({ requestHandler, userBuilder }))
   }
   // With a client CA the TLS layer refuses any connection without a certificate it signed, on both ports.
   const httpServer = tls
@@ -551,7 +555,7 @@ async function serve(opts) {
   const httpUp = new Promise(resolve => httpServer.once('listening', resolve))
 
   const grpcFailures = perMinute(authFailuresPerMinute)
-  const grpcServer = new grpc.Server()
+  const grpcServer = new grpc.Server({ 'grpc.max_receive_message_length': maxRequestMiB * 1024 * 1024 })
   grpcServer.addService(
     A2AService,
     grpcService({
@@ -652,6 +656,7 @@ const { positionals, values } = parseArgs({
     'max-concurrent-tasks': { type: 'string', default: '4' },
     'tasks-per-minute': { type: 'string', default: '30' },
     'auth-failures-per-minute': { type: 'string', default: '20' },
+    'max-request-mib': { type: 'string', default: '16' },
     'outbox-max-files': { type: 'string', default: String(OUTBOX_LIMITS.files) },
     'outbox-max-file-mib': { type: 'string', default: String(OUTBOX_LIMITS.fileMiB) },
     'outbox-max-total-mib': { type: 'string', default: String(OUTBOX_LIMITS.totalMiB) },
