@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.0](https://github.com/fulgas/claude-a2a/compare/v0.8.0...v0.9.0) (2026-11-12)
+
+
+### Features
+
+* **server:** declare more extensions in the agent card, from a file ([49c87fc](https://github.com/fulgas/claude-a2a/commit/49c87fc9df60ea683024a504b7448f22db4b6aa4))
+* **server:** keep large request parts out of the prompt, in the task's inbox ([e8c337f](https://github.com/fulgas/claude-a2a/commit/e8c337f6288d40599dc3058765f653f734045192))
+* **server:** take requests up to maxRequestMiB, 16 by default ([94064fb](https://github.com/fulgas/claude-a2a/commit/94064fb4f59229d338056ef7b4ec65f8dfa67277))
+
 ## [0.8.0](https://github.com/fulgas/claude-a2a/compare/v0.7.0...v0.8.0) (2026-11-12)
 
 
