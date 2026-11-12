@@ -21,7 +21,7 @@ A Claude Code plugin that speaks the A2A protocol both ways: tools to call remot
 | --- | --- |
 | `just check` | Everything CI runs. Run before every pull request. |
 | `just build` | Bundles `bridge/a2a.mjs` into `dist/a2a.mjs`, for the tests and `just try`. Never commit `dist/`: the release workflow rebuilds it in the release pull request, and CI refuses any other pull request that changes it. |
-| `just test` | The bridge end to end over every transport (`bridge/a2a.test.mjs`), the client's authentication (`bridge/auth.test.mjs`) and the task outbox (`bridge/outbox.test.mjs`), then the hooks module against the engine (`tests/*.test.ts`). |
+| `just test` | The bridge end to end over every transport (`bridge/a2a.test.mjs`), the client's authentication (`bridge/auth.test.mjs`) and the task inbox and outbox (`bridge/inbox.test.mjs`, `bridge/outbox.test.mjs`), then the hooks module against the engine (`tests/*.test.ts`). |
 | `just lint` | Biome, `claude plugin validate .` and zizmor on the workflows. `just fix` applies Biome's fixes. |
 | `just audit` | `npm audit` on what ships, and registry signatures and provenance for every package. |
 | `just docs`, `just docs-serve` | Build the documentation site into `docs-site/dist`, or serve it on http://localhost:8000. The site is built from `README.md`, `docs/` and the policies by `docs-site/sync.mjs`; never edit `docs-site/content/`. |

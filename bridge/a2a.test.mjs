@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
 import { generateKeyPairSync, randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -60,6 +60,8 @@ async function serve(...args) {
   let buffered = ''
   const callers = []
   const outboxes = []
+  // Each task's prompt text, and the inbox files it names, read while the task runs.
+  const tasks = []
   const ready = new Promise((resolve, reject) => {
     child.stdout.on('data', chunk => {
       buffered += chunk
@@ -71,6 +73,8 @@ async function serve(...args) {
         if (msg.type === 'task') {
           callers.push(msg.caller)
           outboxes.push(msg.outbox)
+          const named = [...msg.text.matchAll(/ in (\/\S+)\]/g)].map(([, path]) => path)
+          tasks.push({ text: msg.text, files: named.map(path => ({ path, content: readFileSync(path, 'utf8') })) })
           for (const [name, content] of Object.entries(files)) writeFileSync(join(msg.outbox, name), content)
           setTimeout(
             () =>
@@ -90,7 +94,7 @@ async function serve(...args) {
     })
   })
   const up = await ready
-  return { url: new URL(up.card).origin, ready: up, callers, outboxes }
+  return { url: new URL(up.card).origin, ready: up, callers, outboxes, tasks }
 }
 
 describe('transports all', async () => {
@@ -669,7 +673,7 @@ const overGrpc = async (url, bytes) => {
 }
 
 describe('large requests', async () => {
-  const { url } = await serve('--transports', 'all')
+  const { url, tasks } = await serve('--transports', 'all')
 
   test('a 9 MiB data part is taken over JSON-RPC and REST', async () => {
     for (const binding of ['jsonrpc', 'rest']) {
@@ -677,6 +681,15 @@ describe('large requests', async () => {
       assert.equal(r.status, 200, binding)
       assert.equal(r.state, 'TASK_STATE_COMPLETED', binding)
     }
+  })
+
+  test('a 9 MiB data part reaches the task as a file in its inbox, and the prompt stays small', async () => {
+    await overHttp(url, 'jsonrpc', 9 * MiB)
+    const { text, files } = tasks.at(-1)
+    assert.ok(text.length < 300, text)
+    assert.match(text, /^\[part 1: data, 9\.0 MiB, in \/.+\/a2a-inbox-\w+\/[\w-]+\/part-1\.json\]$/)
+    assert.equal(JSON.parse(files[0].content).bundle.length, 9 * MiB)
+    assert.equal(existsSync(files[0].path), false)
   })
 
   test('a 9 MiB data part is taken over gRPC', async () => {

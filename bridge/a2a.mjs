@@ -55,6 +55,7 @@ import { rateLimit } from 'express-rate-limit'
 import { Agent, fetch as tlsFetch } from 'undici'
 
 import { cardSigner, clientAuth, perMinute, serverAuth, verifyCard } from './auth.mjs'
+import { writeInbox } from './inbox.mjs'
 import { OUTBOX_LIMITS, OUTPUT_MODES, readOutbox } from './outbox.mjs'
 
 // Read at run time, so a release bumps package.json alone and dist/ stays as built.
@@ -324,8 +325,9 @@ async function serve(opts) {
     fileMiB: wholeAboveZero('outbox-max-file-mib'),
     totalMiB: wholeAboveZero('outbox-max-total-mib'),
   }
-  // One private folder (0700) per server start, holding each running task's outbox.
+  // One private folder (0700) per server start for each running task's outbox, and one for its inbox.
   const outboxes = mkdtempSync(join(tmpdir(), 'a2a-outbox-'))
+  const inboxes = mkdtempSync(join(tmpdir(), 'a2a-inbox-'))
   const withHttp = opts.transports !== 'grpc'
   const withGrpc = opts.transports !== 'http'
 
@@ -442,8 +444,13 @@ async function serve(opts) {
       // Named by the bridge, never by the task id a client may choose, so it cannot point outside the outboxes.
       const outbox = join(outboxes, randomUUID())
       mkdirSync(outbox, { mode: 0o700 })
-      out({ type: 'task', taskId, contextId, caller: shown, text: partsText(userMessage.parts), outbox })
-      let { ok, text, canceled } = await answer
+      // The message's large parts go to the inbox as files, so they reach the task without entering the prompt.
+      const inbox = join(inboxes, randomUUID())
+      mkdirSync(inbox, { mode: 0o700 })
+      const text = writeInbox(inbox, userMessage.parts)
+      out({ type: 'task', taskId, contextId, caller: shown, text, outbox })
+      let { ok, text: answerText, canceled } = await answer
+      rmSync(inbox, { recursive: true, force: true })
       pending.delete(taskId)
       running.delete(taskId)
       let artifacts = []
@@ -451,7 +458,7 @@ async function serve(opts) {
         if (ok && !canceled) artifacts = readOutbox(outbox, outboxLimits)
       } catch (err) {
         ok = false
-        text = `the task's outbox was refused: ${err.message}`
+        answerText = `the task's outbox was refused: ${err.message}`
       } finally {
         rmSync(outbox, { recursive: true, force: true })
       }
@@ -475,7 +482,7 @@ async function serve(opts) {
             TaskArtifactUpdateEvent.fromJSON({
               taskId,
               contextId,
-              artifact: { artifactId: randomUUID(), name: 'answer', parts: [{ text }] },
+              artifact: { artifactId: randomUUID(), name: 'answer', parts: [{ text: answerText }] },
               lastChunk: true,
             }),
           ),
@@ -483,7 +490,7 @@ async function serve(opts) {
         bus.publish(status(taskId, contextId, 'TASK_STATE_COMPLETED'))
       } else {
         // A failure is no answer: its reason goes in the status alone.
-        bus.publish(status(taskId, contextId, 'TASK_STATE_FAILED', text))
+        bus.publish(status(taskId, contextId, 'TASK_STATE_FAILED', answerText))
       }
       bus.finished()
     },
@@ -626,6 +633,7 @@ async function serve(opts) {
 
   const stop = () => {
     rmSync(outboxes, { recursive: true, force: true })
+    rmSync(inboxes, { recursive: true, force: true })
     grpcServer.forceShutdown()
     httpServer.close()
     control.close()
