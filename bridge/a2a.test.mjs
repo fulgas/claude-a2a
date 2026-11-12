@@ -711,3 +711,57 @@ describe('a request over maxRequestMiB', async () => {
     assert.match(r.error, /--max-request-mib must be a whole number above 0/)
   })
 })
+
+describe('card extensions from a file', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'a2a-ext-'))
+  const keyFile = join(dir, 'card.key')
+  writeFileSync(keyFile, generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }))
+  const studio = 'https://github.com/fulgas/pheme/tree/main/extensions/studio/v1'
+  const showrunner = 'https://github.com/fulgas/pheme/tree/main/extensions/showrunner/v1'
+  const extensions = [
+    { uri: studio, description: 'Makes videos', required: false, params: { formats: ['mp4'] } },
+    { uri: showrunner },
+  ]
+  const file = (name, content) => {
+    const path = join(dir, name)
+    writeFileSync(path, typeof content === 'string' ? content : JSON.stringify(content))
+    return path
+  }
+  const provider = await authServer()
+  const { url } = await serve(
+    ...['--card-extensions', file('extensions.json', extensions), '--card-signing-key', keyFile],
+    ...['--oidc-issuer', provider.issuer, '--oidc-audience', 'a2a-test'],
+  )
+
+  test('each is declared once, next to Secure Passport, in a card whose signature verifies', async () => {
+    const r = await client('card', url)
+    assert.equal(r.signature, 'verified')
+    const declared = r.card.capabilities.extensions
+    assert.deepEqual(
+      declared.map(e => e.uri),
+      ['https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport', studio, showrunner],
+    )
+    const declaredStudio = declared.find(e => e.uri === studio)
+    assert.equal(declaredStudio.description, 'Makes videos')
+    assert.deepEqual(declaredStudio.params, { formats: ['mp4'] })
+  })
+
+  test('a file that does not declare extensions well stops the server, saying why', async () => {
+    for (const [content, why] of [
+      ['{"uri":"x"}', /must hold an array/],
+      [[{ uri: 'not a url' }], /uri must be an absolute URL/],
+      [[{ uri: studio, required: 'no' }], /required must be true or false/],
+      [[{ uri: studio, params: [1] }], /params must be an object/],
+      [[{ uri: studio, mandatory: true }], /unknown key "mandatory"/],
+      [[{ uri: studio }, { uri: studio }], /declared twice/],
+      [[{ uri: 'https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport' }], /declared twice/],
+    ]) {
+      const r = await client(
+        'serve',
+        ...['--control', '/tmp/a2a-unused.sock', '--card-extensions', file('bad.json', content)],
+        ...['--oidc-issuer', provider.issuer, '--oidc-audience', 'a2a-test'],
+      )
+      assert.match(r.error, why)
+    }
+  })
+})

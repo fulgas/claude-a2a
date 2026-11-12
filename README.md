@@ -91,6 +91,7 @@ Set defaults in `/plugin`, under the plugin's options, or in `settings.json`:
 | `maxConcurrentTasks` | `4` | Incoming tasks that run at once; one more fails as busy. `0`: no limit |
 | `tasksPerMinute` | `30` | Tasks one caller may start in a minute. `0`: no limit |
 | `authFailuresPerMinute` | `20` | Failed sign-ins a client may make in a minute before it is refused (HTTP 429). `0`: no limit |
+| `cardExtensions` | empty | JSON file holding an array of A2A extensions the card declares, each `{uri, description?, required?, params?}`. Checked at start; declared beside Secure Passport, each once, and signed with the card |
 | `maxRequestMiB` | `16` | MiB in one request, on every transport; a larger one is refused (HTTP 413, gRPC `RESOURCE_EXHAUSTED`) |
 | `outboxMaxFiles` | `15` | Files a task may answer with from its outbox |
 | `outboxMaxFileMiB` | `32` | MiB in one outbox file; sent in base64, about a third more on the wire |

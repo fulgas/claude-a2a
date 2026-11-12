@@ -109,6 +109,12 @@
       "description": "Private key file (PEM or JWK; EC, Ed25519 or RSA). The card is signed with it, and its public key served at /.well-known/jwks.json. Empty: unsigned card.",
       "default": ""
     },
+    "cardExtensions": {
+      "type": "string",
+      "title": "Server: agent card extensions",
+      "description": "A JSON file holding an array of A2A extensions the card declares, each {uri, description?, required?, params?}, besides Secure Passport. Checked at start, and signed with the card. Empty: none.",
+      "default": ""
+    },
     "maxConcurrentTasks": {
       "type": "number",
       "title": "Server: tasks at once",

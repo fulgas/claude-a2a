@@ -13,7 +13,7 @@
 // Server:  a2a serve  --control <unix socket> [--host 127.0.0.1] [--port 41241] [--grpc-port 41242]
 //                     [--public-host NAME] [--transports all|http|grpc] [--api-key K (or $A2A_SERVE_API_KEY)]
 //                     [--oidc-issuer URL --oidc-audience AUD [--required-scopes "S1 S2"]]
-//                     [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK]
+//                     [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK] [--card-extensions FILE]
 //                     [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20]
 //                     [--max-request-mib 16] [--outbox-max-files 15] [--outbox-max-file-mib 32] [--outbox-max-total-mib 90]
 //
@@ -280,6 +280,29 @@ class Caller {
   }
 }
 
+// The extensions a card declares beyond the bridge's own, from a JSON file holding an array of A2A extension
+// declarations ({uri, description?, required?, params?}), checked before the card is built and signed.
+function cardExtensions(path) {
+  const list = JSON.parse(readFileSync(path, 'utf8'))
+  const wrong = why => new Error(`--card-extensions ${path}: ${why}`)
+  if (!Array.isArray(list)) throw wrong('the file must hold an array of extensions')
+  return list.map((e, i) => {
+    const at = `extension ${i + 1}`
+    if (!e || typeof e !== 'object' || Array.isArray(e)) throw wrong(`${at} must be an object`)
+    for (const key of Object.keys(e)) {
+      if (!['uri', 'description', 'required', 'params'].includes(key)) throw wrong(`${at} has an unknown key "${key}"`)
+    }
+    if (typeof e.uri !== 'string' || !URL.canParse(e.uri)) throw wrong(`${at}: uri must be an absolute URL`)
+    if (e.description !== undefined && typeof e.description !== 'string') throw wrong(`${at}: description must be text`)
+    if (e.required !== undefined && typeof e.required !== 'boolean')
+      throw wrong(`${at}: required must be true or false`)
+    if (e.params !== undefined && (!e.params || typeof e.params !== 'object' || Array.isArray(e.params))) {
+      throw wrong(`${at}: params must be an object`)
+    }
+    return e
+  })
+}
+
 async function serve(opts) {
   const host = opts.host
   // The address the card names, when callers reach the server by another than it listens on (a container's host).
@@ -328,6 +351,16 @@ async function serve(opts) {
   // One private folder (0700) per server start for each running task's outbox, and one for its inbox.
   const outboxes = mkdtempSync(join(tmpdir(), 'a2a-outbox-'))
   const inboxes = mkdtempSync(join(tmpdir(), 'a2a-inbox-'))
+  const extensions = [
+    // A gateway's token names the gateway, so the caller it relays for comes in a Secure Passport.
+    ...(opts['oidc-issuer']
+      ? [{ uri: SECURE_PASSPORT, required: false, params: { supportedStateKeys: ['onBehalfOf'] } }]
+      : []),
+    ...(opts['card-extensions'] ? cardExtensions(opts['card-extensions']) : []),
+  ]
+  for (const [i, { uri }] of extensions.entries()) {
+    if (extensions.findIndex(e => e.uri === uri) !== i) throw new Error(`the card extension ${uri} is declared twice`)
+  }
   const withHttp = opts.transports !== 'grpc'
   const withGrpc = opts.transports !== 'http'
 
@@ -350,10 +383,7 @@ async function serve(opts) {
     capabilities: {
       streaming: true,
       extendedAgentCard: auth.isConfigured,
-      // A gateway's token names the gateway, so the caller it relays for comes in a Secure Passport.
-      ...(opts['oidc-issuer'] && {
-        extensions: [{ uri: SECURE_PASSPORT, required: false, params: { supportedStateKeys: ['onBehalfOf'] } }],
-      }),
+      ...(extensions.length > 0 && { extensions }),
     },
     defaultInputModes: ['text/plain'],
     defaultOutputModes: OUTPUT_MODES,
@@ -670,6 +700,7 @@ const { positionals, values } = parseArgs({
     'outbox-max-total-mib': { type: 'string', default: String(OUTBOX_LIMITS.totalMiB) },
     host: { type: 'string', default: '127.0.0.1' },
     'public-host': { type: 'string' },
+    'card-extensions': { type: 'string' },
     port: { type: 'string', default: '41241' },
     'grpc-port': { type: 'string', default: '41242' },
     transports: { type: 'string', default: 'all' },

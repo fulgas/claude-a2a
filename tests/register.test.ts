@@ -89,6 +89,7 @@ test(
       tlsKey: '/certs/server.key',
       tlsClientCa: '/certs/ca.pem',
       cardSigningKey: '/keys/card.pem',
+      cardExtensions: '/agent/extensions.json',
       autoServe: false,
     },
   },
@@ -144,6 +145,8 @@ test(
       '/certs/ca.pem',
       '--card-signing-key',
       '/keys/card.pem',
+      '--card-extensions',
+      '/agent/extensions.json',
       '--port',
       '9500',
     ])
