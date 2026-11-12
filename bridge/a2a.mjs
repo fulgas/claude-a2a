@@ -15,14 +15,17 @@
 //                     [--oidc-issuer URL --oidc-audience AUD [--required-scopes "S1 S2"]]
 //                     [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK]
 //                     [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20]
+//                     [--outbox-max-files 15] [--outbox-max-file-mib 32] [--outbox-max-total-mib 90]
 //
 // Output is NDJSON on stdout. `serve` prints {"type":"task",...} for every incoming
 // task and waits for the plugin to POST the answer to /reply on the control socket. A client prints
 // {"type":"login",url,code?} when a person must sign in, and {"type":"token",key,value} for each token it gets.
 import { randomUUID } from 'node:crypto'
-import { readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
   AGENT_CARD_PATH,
@@ -52,6 +55,7 @@ import { rateLimit } from 'express-rate-limit'
 import { Agent, fetch as tlsFetch } from 'undici'
 
 import { cardSigner, clientAuth, perMinute, serverAuth, verifyCard } from './auth.mjs'
+import { OUTBOX_LIMITS, OUTPUT_MODES, readOutbox } from './outbox.mjs'
 
 // Read at run time, so a release bumps package.json alone and dist/ stays as built.
 // From bridge/ and from dist/ alike, package.json is one folder up.
@@ -308,6 +312,18 @@ async function serve(opts) {
   const callerTasks = perMinute(Number(opts['tasks-per-minute']))
   const authFailuresPerMinute = Number(opts['auth-failures-per-minute'])
   const running = new Set()
+  const wholeAboveZero = flag => {
+    const n = Number(opts[flag])
+    if (!Number.isInteger(n) || n < 1) throw new Error(`--${flag} must be a whole number above 0, not "${opts[flag]}"`)
+    return n
+  }
+  const outboxLimits = {
+    files: wholeAboveZero('outbox-max-files'),
+    fileMiB: wholeAboveZero('outbox-max-file-mib'),
+    totalMiB: wholeAboveZero('outbox-max-total-mib'),
+  }
+  // One private folder (0700) per server start, holding each running task's outbox.
+  const outboxes = mkdtempSync(join(tmpdir(), 'a2a-outbox-'))
   const withHttp = opts.transports !== 'grpc'
   const withGrpc = opts.transports !== 'http'
 
@@ -336,7 +352,7 @@ async function serve(opts) {
       }),
     },
     defaultInputModes: ['text/plain'],
-    defaultOutputModes: ['text/plain'],
+    defaultOutputModes: OUTPUT_MODES,
     skills: [
       {
         id: 'claude-code',
@@ -421,13 +437,37 @@ async function serve(opts) {
       running.add(taskId)
       bus.publish(status(taskId, contextId, 'TASK_STATE_WORKING'))
       const answer = new Promise(resolve => pending.set(taskId, resolve))
-      out({ type: 'task', taskId, contextId, caller: shown, text: partsText(userMessage.parts) })
-      const { ok, text, canceled } = await answer
+      // Named by the bridge, never by the task id a client may choose, so it cannot point outside the outboxes.
+      const outbox = join(outboxes, randomUUID())
+      mkdirSync(outbox, { mode: 0o700 })
+      out({ type: 'task', taskId, contextId, caller: shown, text: partsText(userMessage.parts), outbox })
+      let { ok, text, canceled } = await answer
       pending.delete(taskId)
       running.delete(taskId)
+      let artifacts = []
+      try {
+        if (ok && !canceled) artifacts = readOutbox(outbox, outboxLimits)
+      } catch (err) {
+        ok = false
+        text = `the task's outbox was refused: ${err.message}`
+      } finally {
+        rmSync(outbox, { recursive: true, force: true })
+      }
       if (canceled) {
         // The cancel already ended the task.
       } else if (ok) {
+        for (const artifact of artifacts) {
+          bus.publish(
+            AgentEvent.artifactUpdate(
+              TaskArtifactUpdateEvent.fromJSON({
+                taskId,
+                contextId,
+                artifact: { artifactId: randomUUID(), ...artifact },
+                lastChunk: true,
+              }),
+            ),
+          )
+        }
         bus.publish(
           AgentEvent.artifactUpdate(
             TaskArtifactUpdateEvent.fromJSON({
@@ -581,6 +621,7 @@ async function serve(opts) {
   )
 
   const stop = () => {
+    rmSync(outboxes, { recursive: true, force: true })
     grpcServer.forceShutdown()
     httpServer.close()
     control.close()
@@ -611,6 +652,9 @@ const { positionals, values } = parseArgs({
     'max-concurrent-tasks': { type: 'string', default: '4' },
     'tasks-per-minute': { type: 'string', default: '30' },
     'auth-failures-per-minute': { type: 'string', default: '20' },
+    'outbox-max-files': { type: 'string', default: String(OUTBOX_LIMITS.files) },
+    'outbox-max-file-mib': { type: 'string', default: String(OUTBOX_LIMITS.fileMiB) },
+    'outbox-max-total-mib': { type: 'string', default: String(OUTBOX_LIMITS.totalMiB) },
     host: { type: 'string', default: '127.0.0.1' },
     'public-host': { type: 'string' },
     port: { type: 'string', default: '41241' },
