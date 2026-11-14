@@ -182,13 +182,18 @@ function startServer(
                 return reply($, taskId, false, entered.drop)
               })
             } else {
-              const spawned = await $.agent.spawn({
-                prompt: text,
-                description: `A2A ${msg.caller} ${taskId.slice(0, 8)}`,
-                ...(taskMode === 'fork' && { subagentType: 'fork' }),
-              })
-              if (spawned.deny !== undefined) await reply($, taskId, false, spawned.deny)
-              else if (spawned.agentId) running.set(spawned.agentId, taskId)
+              // A task that cannot start (the Agent tool denied, say) fails alone; the server goes on.
+              try {
+                const spawned = await $.agent.spawn({
+                  prompt: text,
+                  description: `A2A ${msg.caller} ${taskId.slice(0, 8)}`,
+                  ...(taskMode === 'fork' && { subagentType: 'fork' }),
+                })
+                if (spawned.deny !== undefined) await reply($, taskId, false, spawned.deny)
+                else if (spawned.agentId) running.set(spawned.agentId, taskId)
+              } catch (err) {
+                await reply($, taskId, false, `the task's subagent could not start: ${err}`)
+              }
             }
           } else if (msg.type === 'cancel') {
             for (const [header, taskId] of queued) if (taskId === msg.taskId) queued.delete(header)

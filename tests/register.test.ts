@@ -239,6 +239,8 @@ test('a sign-in is shown to the person, and the token it gave is passed to the n
 // as POST /reply bodies on the control socket.
 function bridgeWithTask(on: Parameters<Parameters<typeof test>[1]>[1], task = 'review the diff') {
   const replies: { taskId: string; ok: boolean; text: string }[] = []
+  // What the status line was set to: the server clears it when it stops.
+  const statuses: unknown[] = []
   let release: () => void = () => {}
   const held = new Promise<void>(resolve => (release = resolve))
   on('process.spawn', async function* () {
@@ -254,9 +256,12 @@ function bridgeWithTask(on: Parameters<Parameters<typeof test>[1]>[1], task = 'r
     replies.push(JSON.parse(String(e.init?.body)))
     return { value: { status: 204, headers: {}, body: '' } }
   })
-  on('ui.status', () => ({ value: undefined }))
+  on('ui.status', (_, e) => {
+    statuses.push(e)
+    return { value: undefined }
+  })
   on('ui.toast', () => ({ value: undefined }))
-  return { replies, release }
+  return { replies, release, statuses }
 }
 const settled = () => new Promise(resolve => setTimeout(resolve, 20))
 
@@ -322,6 +327,27 @@ for (const [taskMode, subagentType] of [
     },
   )
 }
+
+test(
+  'a task that cannot start fails alone, and the server keeps running',
+  { options: { taskMode: 'subagent' } },
+  async ($, on) => {
+    const { replies, release, statuses } = bridgeWithTask(on)
+    on('agent.spawn', () => {
+      throw new Error('Agent is denied by permissions.deny')
+    })
+
+    await $.command.run({ command: 'a2a-serve', args: '' })
+    await settled()
+
+    expect(replies).toHaveLength(1)
+    expect(replies[0].ok).toBe(false)
+    expect(replies[0].text).toContain("the task's subagent could not start")
+    // Stopping the server clears its status line; it was never cleared.
+    expect(statuses.some(s => s === undefined || (s as { text?: unknown }).text === undefined)).toBe(false)
+    release()
+  },
+)
 
 test('a typed --task-mode wins over the saved one and stays out of the bridge argv', async ($, on) => {
   let argv: readonly string[] = []
