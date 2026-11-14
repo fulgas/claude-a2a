@@ -176,19 +176,31 @@ function startServer(
               // The prompt waits its turn while the person is working; turn.start ties it to the turn that runs it.
               const header = inlineHeader(taskId, msg.caller)
               queued.set(header, taskId)
-              void $.prompt.submit({ text: `${header}\n\n${text}` }).then(entered => {
-                if (entered.drop === undefined) return
-                queued.delete(header)
-                return reply($, taskId, false, entered.drop)
-              })
+              void $.prompt.submit({ text: `${header}\n\n${text}` }).then(
+                entered => {
+                  if (entered.drop === undefined) return
+                  queued.delete(header)
+                  return reply($, taskId, false, entered.drop)
+                },
+                // A task the conversation cannot take fails alone; the server goes on.
+                err => {
+                  queued.delete(header)
+                  return reply($, taskId, false, `the conversation could not take the task: ${err}`)
+                },
+              )
             } else {
-              const spawned = await $.agent.spawn({
-                prompt: text,
-                description: `A2A ${msg.caller} ${taskId.slice(0, 8)}`,
-                ...(taskMode === 'fork' && { subagentType: 'fork' }),
-              })
-              if (spawned.deny !== undefined) await reply($, taskId, false, spawned.deny)
-              else if (spawned.agentId) running.set(spawned.agentId, taskId)
+              // A task that cannot start (the Agent tool denied, say) fails alone; the server goes on.
+              try {
+                const spawned = await $.agent.spawn({
+                  prompt: text,
+                  description: `A2A ${msg.caller} ${taskId.slice(0, 8)}`,
+                  ...(taskMode === 'fork' && { subagentType: 'fork' }),
+                })
+                if (spawned.deny !== undefined) await reply($, taskId, false, spawned.deny)
+                else if (spawned.agentId) running.set(spawned.agentId, taskId)
+              } catch (err) {
+                await reply($, taskId, false, `the task's subagent could not start: ${err}`)
+              }
             }
           } else if (msg.type === 'cancel') {
             for (const [header, taskId] of queued) if (taskId === msg.taskId) queued.delete(header)

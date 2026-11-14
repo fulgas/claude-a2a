@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
 
-import { AgentCard } from '@a2a-js/sdk'
+import { AgentCard, generateAgentCardSignature } from '@a2a-js/sdk'
+import { flattenedVerify, importJWK } from 'jose'
 
 import { cardSigner, clientAuth, verifyCard } from './auth.mjs'
 import { authServer } from './test-support.mjs'
@@ -238,6 +239,54 @@ describe('agent card signatures', async () => {
     const trusted = join(dir, 'trusted.json')
     writeFileSync(trusted, JSON.stringify(signer.jwks))
     assert.equal(await verifyCard(signed, 'https://elsewhere.test/', { trustedKeys: trusted }), 'verified')
+  })
+
+  // A card as a server with OIDC serves it: a scheme with its details, and a requirement with no scopes.
+  const secured = AgentCard.fromJSON({
+    name: 'secured agent',
+    version: '1.0.0',
+    securitySchemes: { oidc: { openIdConnectSecurityScheme: { openIdConnectUrl: 'https://id.test/.well-known/x' } } },
+    securityRequirements: [{ schemes: { oidc: { list: [] } } }],
+  })
+  // JCS (RFC 8785) of a JSON value; the card's numbers are integers, which JSON.stringify writes as JCS does.
+  const jcs = v =>
+    Array.isArray(v)
+      ? `[${v.map(jcs).join(',')}]`
+      : v && typeof v === 'object'
+        ? `{${Object.keys(v)
+            .sort()
+            .map(k => `${JSON.stringify(k)}:${jcs(v[k])}`)
+            .join(',')}}`
+        : JSON.stringify(v)
+
+  test('the signature covers the card exactly as served, its security schemes and requirements included', async () => {
+    const { signatures, ...unsigned } = AgentCard.toJSON(await signer.sign(secured))
+    const [sig] = signatures
+    const key = await importJWK(signer.jwks.keys[0], 'ES256')
+    const payload = Buffer.from(jcs(unsigned)).toString('base64url')
+    await flattenedVerify({ protected: sig.protected, signature: sig.signature, payload }, key)
+    assert.deepEqual(unsigned.securityRequirements, [{ schemes: { oidc: {} } }])
+    // Only a check over the served form can pass: the SDK's drops the empty requirement the signature covers.
+    assert.equal(await verifyCard(await signer.sign(secured), agentUrl, { fetch: served(signer.jwks) }), 'verified')
+  })
+
+  test('a changed security scheme does not verify', async () => {
+    const json = AgentCard.toJSON(await signer.sign(secured))
+    json.securitySchemes.oidc.openIdConnectSecurityScheme.openIdConnectUrl = 'https://attacker.test/x'
+    await assert.rejects(
+      verifyCard(AgentCard.fromJSON(json), agentUrl, { fetch: served(signer.jwks) }),
+      /does not verify/,
+    )
+  })
+
+  test('a card signed as the a2a-js SDK signs one, without its empty values, still verifies', async () => {
+    const sdkSigned = await generateAgentCardSignature(privateKey, {
+      alg: 'ES256',
+      kid: signer.jwks.keys[0].kid,
+      typ: 'JOSE',
+      jku,
+    })(AgentCard.toJSON(secured))
+    assert.equal(await verifyCard(AgentCard.fromJSON(sdkSigned), agentUrl, { fetch: served(signer.jwks) }), 'verified')
   })
 
   test('an unsigned card passes as unsigned, unless signed cards are required', async () => {

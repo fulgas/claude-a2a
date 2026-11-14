@@ -12,8 +12,17 @@ import { createHash, createPrivateKey, createPublicKey, randomBytes, timingSafeE
 import { readFileSync } from 'node:fs'
 import http from 'node:http'
 
-import { generateAgentCardSignature, verifyAgentCardSignature } from '@a2a-js/sdk'
-import { calculateJwkThumbprint, createRemoteJWKSet, errors, jwtVerify } from 'jose'
+import { AgentCard, verifyAgentCardSignature } from '@a2a-js/sdk'
+import {
+  base64url,
+  calculateJwkThumbprint,
+  createRemoteJWKSet,
+  errors,
+  FlattenedSign,
+  flattenedVerify,
+  importJWK,
+  jwtVerify,
+} from 'jose'
 
 export const API_KEY_HEADER = 'X-API-Key'
 // Asymmetric algorithms only: a key set from the issuer never verifies an HMAC token signed with a public key.
@@ -186,10 +195,31 @@ export async function serverAuth({ apiKey, issuer, audience, scopes = [], mtls =
   return { authenticate, challenges, securitySchemes, securityRequirements, isConfigured }
 }
 
+// JCS (RFC 8785) of a JSON value. A card's numbers are integers, which JSON.stringify writes as JCS does, and its keys
+// sort by UTF-16 code units, as JavaScript's sort does.
+const jcs = v =>
+  Array.isArray(v)
+    ? `[${v.map(jcs).join(',')}]`
+    : v && typeof v === 'object'
+      ? `{${Object.keys(v)
+          .sort()
+          .map(k => `${JSON.stringify(k)}:${jcs(v[k])}`)
+          .join(',')}}`
+      : JSON.stringify(v)
+
+// What a card's signatures cover (section 8.4.1): its JSON as served, which protobuf JSON already writes with field
+// presence, without `signatures`, in JCS. The SDK instead drops every empty value, so a requirement with no scopes,
+// {"oidc": {}}, would go unsigned.
+const signedContent = card => {
+  const { signatures, ...unsigned } = AgentCard.toJSON(card)
+  return new TextEncoder().encode(jcs(unsigned))
+}
+const SIGNING_ALGORITHMS = ['ES256', 'ES384', 'ES512', 'EdDSA', 'RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512']
+
 /**
  * Signs the agent card (section 8.4) with a private key from a PEM or JWK file: ES256/384/512 for EC keys, EdDSA for
  * Ed25519, RS256 for RSA. The key id is the public key's JWK thumbprint (RFC 7638), and `jku` names where the
- * public key set is served.
+ * public key set is served. The signature covers the card exactly as it is served.
  */
 export async function cardSigner(path, jku) {
   const text = readFileSync(path, 'utf8')
@@ -202,7 +232,14 @@ export async function cardSigner(path, jku) {
   if (!alg) throw new Error(`${path}: an EC (P-256, P-384, P-521), Ed25519 or RSA key is needed to sign the card`)
   const kid = await calculateJwkThumbprint(publicJwk)
   return {
-    sign: generateAgentCardSignature(privateKey, { alg, kid, typ: 'JOSE', jku }),
+    sign: async card => {
+      const jws = await new FlattenedSign(signedContent(card))
+        .setProtectedHeader({ alg, kid, typ: 'JOSE', jku })
+        .sign(privateKey)
+      const json = AgentCard.toJSON(card)
+      json.signatures = [...(json.signatures ?? []), { protected: jws.protected, signature: jws.signature }]
+      return AgentCard.fromJSON(json)
+    },
     jwks: { keys: [{ ...publicJwk, kid, alg, use: 'sig' }] },
   }
 }
@@ -246,13 +283,28 @@ export async function verifyCard(card, cardUrl, { fetch: fetchImpl = fetch, trus
     if (!jwk) throw new Error(`no key "${kid}" in ${source}`)
     return jwk
   }
+  // The card as served, as the spec signs it; then, for agents signed by the a2a-js SDK, the card without its empty
+  // values, as that SDK signs it. Either way the key must be the agent's.
+  const payload = base64url.encode(signedContent(card))
+  for (const { protected: header, signature } of AgentCard.toJSON(card).signatures) {
+    try {
+      const { kid, jku, alg } = JSON.parse(new TextDecoder().decode(base64url.decode(header)))
+      if (!SIGNING_ALGORITHMS.includes(alg))
+        throw new Error(`the signature's algorithm ${alg} is not an asymmetric one`)
+      const key = await importJWK(await publicKey(kid, jku), alg)
+      await flattenedVerify({ protected: header, signature, payload }, key, { algorithms: SIGNING_ALGORITHMS })
+      return 'verified'
+    } catch (err) {
+      reason = err.message
+    }
+  }
   try {
     await verifyAgentCardSignature((kid, jku) =>
       publicKey(kid, jku).catch(err => {
         reason = err.message
         throw err
       }),
-    )(card)
+    )(AgentCard.toJSON(card))
   } catch (err) {
     throw new Error(`the agent card's signature does not verify: ${reason ?? err.message}`)
   }
