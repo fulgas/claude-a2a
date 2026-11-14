@@ -14,6 +14,7 @@ import { SendMessageRequest, taskStateToJSON } from '@a2a-js/sdk'
 import { ClientFactory, ClientFactoryOptions, DefaultAgentCardResolver } from '@a2a-js/sdk/client'
 import { GrpcTransportFactory } from '@a2a-js/sdk/client/grpc'
 import * as grpc from '@grpc/grpc-js'
+import { flattenedVerify, importJWK } from 'jose'
 
 import { authServer, certificates, freePort } from './test-support.mjs'
 
@@ -754,6 +755,27 @@ describe('card extensions from a file', async () => {
     const declaredStudio = declared.find(e => e.uri === studio)
     assert.equal(declaredStudio.description, 'Makes videos')
     assert.deepEqual(declaredStudio.params, { formats: ['mp4'] })
+  })
+
+  test('the signature verifies over the card exactly as served, as a verifier that reads it as served checks it', async () => {
+    const served = await (await fetch(`${url}/.well-known/agent-card.json`)).json()
+    const { signatures, ...unsigned } = served
+    assert.ok(unsigned.securitySchemes.oidc && unsigned.securityRequirements.length)
+    const jcs = v =>
+      Array.isArray(v)
+        ? `[${v.map(jcs).join(',')}]`
+        : v && typeof v === 'object'
+          ? `{${Object.keys(v)
+              .sort()
+              .map(k => `${JSON.stringify(k)}:${jcs(v[k])}`)
+              .join(',')}}`
+          : JSON.stringify(v)
+    const { keys } = await (await fetch(`${url}/.well-known/jwks.json`)).json()
+    const [sig] = signatures
+    await flattenedVerify(
+      { protected: sig.protected, signature: sig.signature, payload: Buffer.from(jcs(unsigned)).toString('base64url') },
+      await importJWK(keys[0], 'EdDSA'),
+    )
   })
 
   test('a file that does not declare extensions well stops the server, saying why', async () => {
