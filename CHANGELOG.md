@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.1](https://github.com/fulgas/claude-a2a/compare/v0.9.0...v0.9.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **server:** a task whose subagent cannot start fails alone ([c34b35b](https://github.com/fulgas/claude-a2a/commit/c34b35bc7267312e5526c31949a8716820e25616))
+* **server:** an inline task the conversation cannot take fails alone ([bd36de9](https://github.com/fulgas/claude-a2a/commit/bd36de9f8ff92ee3c518faae9d60740db55af6c4))
+* **server:** sign the agent card exactly as served, security schemes included ([a3eba80](https://github.com/fulgas/claude-a2a/commit/a3eba8059c99957b6fc2abe10119ff81e7974107))
+
 ## [0.9.0](https://github.com/fulgas/claude-a2a/compare/v0.8.0...v0.9.0) (2026-11-12)
 
 
