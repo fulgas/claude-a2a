@@ -328,6 +328,21 @@ for (const [taskMode, subagentType] of [
   )
 }
 
+test('an inline task the conversation cannot take fails alone, and the server keeps running', async ($, on) => {
+  const { replies, release, statuses } = bridgeWithTask(on)
+  on('prompt.submit', () => {
+    throw new Error('the conversation is closed')
+  })
+
+  await $.command.run({ command: 'a2a-serve', args: '' })
+  await settled()
+
+  expect(replies).toHaveLength(1)
+  expect(replies[0].ok).toBe(false)
+  expect(statuses.some(s => s === undefined || (s as { text?: unknown }).text === undefined)).toBe(false)
+  release()
+})
+
 test(
   'a task that cannot start fails alone, and the server keeps running',
   { options: { taskMode: 'subagent' } },

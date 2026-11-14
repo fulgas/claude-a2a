@@ -176,11 +176,18 @@ function startServer(
               // The prompt waits its turn while the person is working; turn.start ties it to the turn that runs it.
               const header = inlineHeader(taskId, msg.caller)
               queued.set(header, taskId)
-              void $.prompt.submit({ text: `${header}\n\n${text}` }).then(entered => {
-                if (entered.drop === undefined) return
-                queued.delete(header)
-                return reply($, taskId, false, entered.drop)
-              })
+              void $.prompt.submit({ text: `${header}\n\n${text}` }).then(
+                entered => {
+                  if (entered.drop === undefined) return
+                  queued.delete(header)
+                  return reply($, taskId, false, entered.drop)
+                },
+                // A task the conversation cannot take fails alone; the server goes on.
+                err => {
+                  queued.delete(header)
+                  return reply($, taskId, false, `the conversation could not take the task: ${err}`)
+                },
+              )
             } else {
               // A task that cannot start (the Agent tool denied, say) fails alone; the server goes on.
               try {
