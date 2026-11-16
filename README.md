@@ -152,6 +152,10 @@ Then, in `managed-settings.json`, declare that marketplace, enable the plugin, a
   "allowManagedHooksOnly": true,
   "allowManagedPermissionRulesOnly": true,
   "disableSideloadFlags": true,
+  "strictPluginOnlyCustomization": true,
+  "strictKnownMarketplaces": [{ "source": "directory", "path": "/opt/acme/claude-plugins" }],
+  "autoMemoryEnabled": false,
+  "claudeMdExcludes": ["/home/agent/.claude/**"],
   "extraKnownMarketplaces": {
     "acme-plugins": { "source": { "source": "directory", "path": "/opt/acme/claude-plugins" } }
   },
@@ -163,9 +167,14 @@ Then, in `managed-settings.json`, declare that marketplace, enable the plugin, a
 - Options other than secrets go in `pluginConfigs`; secrets stay in the environment, as above.
 - With `allowManagedPermissionRulesOnly`, the rules this section lists (`Agent`, `Read` on the inbox, `Edit` on the outbox) go in the managed `permissions` too.
 - `disableSideloadFlags` makes Claude Code refuse `--plugin-dir`, so a script cannot load a plugin of its own.
+- The hook settings alone leave a writable `~/.claude` able to reach the model. Each of the other keys closes one way:
+  - `strictPluginOnlyCustomization` blocks skills, agents and MCP servers from `~/.claude/skills`, `~/.claude/agents` and settings files;
+  - `strictKnownMarketplaces` blocks any marketplace but yours, so a plugin enabled in the user's `settings.json` cannot start its MCP server or add skills;
+  - `autoMemoryEnabled: false` stops Claude reading auto memory (`MEMORY.md`);
+  - `claudeMdExcludes` skips the `CLAUDE.md` and rules files under the agent's config folder.
 - The debug log says `hooks module a2a@acme-plugins loaded` once it works.
 
-This was checked with Claude Code 2.1.322: a hook and permissions planted in the user's `settings.json` did not apply. From 2.1.324, a GitHub marketplace can count as the organization's too, when managed settings also list the plugin in `prependPlugins` with `sec-default@builtin`. Claude Code's [mods admin guide](https://code.claude.com/docs/en/plugins/mods/admin) has the conditions.
+This was checked with Claude Code 2.1.322: a hook and permissions planted in the user's `settings.json` did not apply, and no planted marketplace, skill, agent, memory or `CLAUDE.md` text reached the model, while the card was still served. From 2.1.324, a GitHub marketplace can count as the organization's too, when managed settings also list the plugin in `prependPlugins` with `sec-default@builtin`. Claude Code's [mods admin guide](https://code.claude.com/docs/en/plugins/mods/admin) has the conditions.
 
 **Where tasks run.** With `taskMode` `inline` (the default), a task is a prompt in your conversation: you see it and its answer in the transcript, it waits until your own turn ends, and Claude answers it with everything the conversation holds. `fork` gives a subagent a copy of the conversation; `subagent` gives it none. **With `inline` or `fork`, anyone allowed to send tasks can ask for what is in your conversation**, pasted secrets included: use `subagent` when callers should not see it.
 
