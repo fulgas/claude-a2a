@@ -133,6 +133,40 @@ The agent card advertises whichever schemes are on, and stays public, so clients
 - `Read` on the inbox and `Edit` on the outbox, as above, when its tasks send or get files;
 - `CLAUDE_CONFIG_DIR` set to a folder that persists (`/home/agent/.claude`, say) when only that folder is kept: Claude Code keeps its first-run state in `~/.claude.json`, outside `~/.claude`, unless `CLAUDE_CONFIG_DIR` puts it inside.
 
+**Running under managed settings.** With `allowManagedHooksOnly` in managed settings, so that nothing the agent writes can add a hook, the plugin starts only when Claude Code counts it as the organization's: loaded with `--plugin-dir`, it is skipped (`hooks module a2a@inline not loaded`), and the server never starts. Install it from a marketplace directory that only root can write, which lists the plugin by a relative path, so Claude Code loads it in place:
+
+```text
+/opt/acme/claude-plugins/
+├── .claude-plugin/marketplace.json
+└── plugins/a2a/          git clone --branch vX.Y.Z https://github.com/fulgas/claude-a2a.git
+```
+
+```json
+{ "name": "acme-plugins", "owner": { "name": "Acme" }, "plugins": [{ "name": "a2a", "source": "./plugins/a2a" }] }
+```
+
+Then, in `managed-settings.json`, declare that marketplace, enable the plugin, and give it its options:
+
+```json
+{
+  "allowManagedHooksOnly": true,
+  "allowManagedPermissionRulesOnly": true,
+  "disableSideloadFlags": true,
+  "extraKnownMarketplaces": {
+    "acme-plugins": { "source": { "source": "directory", "path": "/opt/acme/claude-plugins" } }
+  },
+  "enabledPlugins": { "a2a@acme-plugins": true },
+  "pluginConfigs": { "a2a@acme-plugins": { "options": { "autoServe": true, "publicHost": "agent.example" } } }
+}
+```
+
+- Options other than secrets go in `pluginConfigs`; secrets stay in the environment, as above.
+- With `allowManagedPermissionRulesOnly`, the rules this section lists (`Agent`, `Read` on the inbox, `Edit` on the outbox) go in the managed `permissions` too.
+- `disableSideloadFlags` makes Claude Code refuse `--plugin-dir`, so a script cannot load a plugin of its own.
+- The debug log says `hooks module a2a@acme-plugins loaded` once it works.
+
+This was checked with Claude Code 2.1.322: a hook and permissions planted in the user's `settings.json` did not apply. From 2.1.324, a GitHub marketplace can count as the organization's too, when managed settings also list the plugin in `prependPlugins` with `sec-default@builtin`. Claude Code's [mods admin guide](https://code.claude.com/docs/en/plugins/mods/admin) has the conditions.
+
 **Where tasks run.** With `taskMode` `inline` (the default), a task is a prompt in your conversation: you see it and its answer in the transcript, it waits until your own turn ends, and Claude answers it with everything the conversation holds. `fork` gives a subagent a copy of the conversation; `subagent` gives it none. **With `inline` or `fork`, anyone allowed to send tasks can ask for what is in your conversation**, pasted secrets included: use `subagent` when callers should not see it.
 
 **Limits.** Each task runs Claude on your tokens, so the server caps them: `maxConcurrentTasks` at once, and `tasksPerMinute` per caller (an API key, a JWT subject, or anonymous). A task over a limit fails at once, before any subagent starts, with a status that says which. A client that keeps failing to sign in is refused for the rest of the minute after `authFailuresPerMinute` attempts, so a key cannot be guessed.
