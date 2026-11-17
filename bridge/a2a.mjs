@@ -385,7 +385,8 @@ async function serve(opts) {
       extendedAgentCard: auth.isConfigured,
       ...(extensions.length > 0 && { extensions }),
     },
-    defaultInputModes: ['text/plain'],
+    // What the inbox takes: text, data as JSON, and a file of any type.
+    defaultInputModes: ['text/plain', 'application/json', '*/*'],
     defaultOutputModes: OUTPUT_MODES,
     skills: [
       {
@@ -548,14 +549,23 @@ async function serve(opts) {
   // provider returns as is, so it gets the card's wire JSON, not the SDK's in-memory form.
   // A refusal says what to send (WWW-Authenticate); a token without the scopes needed is forbidden, not unknown.
   const peerName = socket => (socket.authorized ? (socket.getPeerCertificate().subject?.CN ?? 'client') : undefined)
+  // A refusal made before the SDK sees the request is an error in the binding's own form: application/a2a+json with a
+  // status name over REST, a JSON-RPC error over JSON-RPC (A2A 1.0, 9.1 and 11.1).
+  const refuse = (req, res, code, status, message) =>
+    req.originalUrl.startsWith('/a2a/rest')
+      ? res
+          .status(code)
+          .type('application/a2a+json')
+          .send(JSON.stringify({ error: { code, status, message } }))
+      : res.status(code).json({ jsonrpc: '2.0', id: null, error: { code: -32600, message } })
   const authenticated = (req, res, nextMw) =>
     auth.authenticate({ headers: req.headers, peer: peerName(req.socket) }).then(
       ({ caller, client, error }) => {
         if (!caller) {
           for (const challenge of auth.challenges(error)) res.append('WWW-Authenticate', challenge)
           return error === 'insufficient_scope'
-            ? res.status(403).type('text').send('forbidden: the token lacks a scope this agent requires')
-            : res.status(401).type('text').send('unauthorized')
+            ? refuse(req, res, 403, 'PERMISSION_DENIED', 'forbidden: the token lacks a scope this agent requires')
+            : refuse(req, res, 401, 'UNAUTHENTICATED', 'unauthorized')
         }
         req.caller = caller
         req.client = client
@@ -573,6 +583,8 @@ async function serve(opts) {
           skipSuccessfulRequests: true,
           standardHeaders: 'draft-8',
           legacyHeaders: false,
+          handler: (req, res) =>
+            refuse(req, res, 429, 'RESOURCE_EXHAUSTED', 'too many failed attempts to sign in; try again in a minute'),
         })
       : (_req, _res, nextMw) => nextMw()
   app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(publicCard) }))
@@ -582,6 +594,14 @@ async function serve(opts) {
     const body = express.json({ limit: `${maxRequestMiB}mb`, type: ['application/json', 'application/a2a+json'] })
     app.use('/a2a/jsonrpc', limited, authenticated, body, jsonRpcHandler({ requestHandler, userBuilder }))
     app.use('/a2a/rest', limited, authenticated, body, restHandler({ requestHandler, userBuilder }))
+    // The body parser's refusals: a request over maxRequestMiB, or one that is not JSON.
+    app.use('/a2a', (err, req, res, nextMw) =>
+      err.type === 'entity.too.large'
+        ? refuse(req, res, 413, 'RESOURCE_EXHAUSTED', `the request is over ${maxRequestMiB} MiB`)
+        : err.status === 400
+          ? refuse(req, res, 400, 'INVALID_ARGUMENT', 'the request is not JSON')
+          : nextMw(err),
+    )
   }
   // With a client CA the TLS layer refuses any connection without a certificate it signed, on both ports.
   const httpServer = tls
