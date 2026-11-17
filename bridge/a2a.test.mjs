@@ -360,6 +360,15 @@ describe('challenges', async () => {
   })
 })
 
+describe('input modes', async () => {
+  const { url } = await serve()
+
+  test('the card takes text, JSON and any file, as the inbox does', async () => {
+    const card = await (await fetch(`${url}/.well-known/agent-card.json`)).json()
+    assert.deepEqual(card.defaultInputModes, ['text/plain', 'application/json', '*/*'])
+  })
+})
+
 describe('OAuth 2.0 issuer without OpenID Connect', async () => {
   const provider = await authServer({ oidc: false })
   const { url, callers } = await serve('--oidc-issuer', provider.issuer, '--oidc-audience', 'a2a-test')

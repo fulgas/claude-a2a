@@ -385,7 +385,8 @@ async function serve(opts) {
       extendedAgentCard: auth.isConfigured,
       ...(extensions.length > 0 && { extensions }),
     },
-    defaultInputModes: ['text/plain'],
+    // What the inbox takes: text, data as JSON, and a file of any type.
+    defaultInputModes: ['text/plain', 'application/json', '*/*'],
     defaultOutputModes: OUTPUT_MODES,
     skills: [
       {
