@@ -316,7 +316,7 @@ describe('task limits', async () => {
   test('the failed sign-in limit is configurable', async () => {
     const { url } = await serve('--api-key', 'k3y', '--auth-failures-per-minute', '3')
     for (const n of [1, 2, 3]) await client('send', url, 'x', '--api-key', `guess-${n}`)
-    assert.match((await client('send', url, 'x', '--api-key', 'k3y')).error, /429 Too Many Requests/)
+    assert.match((await client('send', url, 'x', '--api-key', 'k3y')).error, /too many failed attempts/)
   })
 })
 
@@ -339,6 +339,24 @@ describe('challenges', async () => {
     )
     const bad = await call({ authorization: 'Bearer not-a-jwt' })
     assert.match(bad.headers.get('www-authenticate'), /^Bearer realm="a2a", error="invalid_token"/)
+  })
+
+  test('a refusal is a JSON error: application/a2a+json over REST, a JSON-RPC error over JSON-RPC', async () => {
+    const rest = await fetch(`${url}/a2a/rest/message:send`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/a2a+json' },
+      body: '{}',
+    })
+    assert.equal(rest.status, 401)
+    assert.equal(rest.headers.get('content-type'), 'application/a2a+json; charset=utf-8')
+    assert.deepEqual(await rest.json(), { error: { code: 401, status: 'UNAUTHENTICATED', message: 'unauthorized' } })
+    const rpc = await fetch(`${url}/a2a/jsonrpc`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+    assert.equal(rpc.headers.get('content-type'), 'application/json; charset=utf-8')
+    assert.deepEqual(await rpc.json(), { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'unauthorized' } })
   })
 })
 
@@ -662,7 +680,12 @@ const overHttp = async (url, binding, bytes) => {
     body: JSON.stringify(body),
   })
   const json = await res.json().catch(() => ({}))
-  return { status: res.status, state: (json.result ?? json).task?.status?.state }
+  return {
+    status: res.status,
+    contentType: res.headers.get('content-type'),
+    error: json.error,
+    state: (json.result ?? json).task?.status?.state,
+  }
 }
 const overGrpc = async (url, bytes) => {
   const factory = new ClientFactory(
@@ -715,6 +738,15 @@ describe('a request over maxRequestMiB', async () => {
     for (const binding of ['jsonrpc', 'rest'])
       assert.equal((await overHttp(url, binding, 2 * MiB)).status, 413, binding)
     await assert.rejects(overGrpc(url, 2 * MiB), /RESOURCE_EXHAUSTED|larger than max/i)
+  })
+
+  test('the 413 is a JSON error in each binding', async () => {
+    const rest = await overHttp(url, 'rest', 2 * MiB)
+    assert.equal(rest.contentType, 'application/a2a+json; charset=utf-8')
+    assert.equal(rest.error.status, 'RESOURCE_EXHAUSTED')
+    const rpc = await overHttp(url, 'jsonrpc', 2 * MiB)
+    assert.equal(rpc.contentType, 'application/json; charset=utf-8')
+    assert.equal(rpc.error.code, -32600)
   })
 
   test('must be a whole number above 0', async () => {
