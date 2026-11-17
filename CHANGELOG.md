@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.2](https://github.com/fulgas/claude-a2a/compare/v0.9.1...v0.9.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* **server:** refusals over HTTP are JSON errors in the binding's form ([d8277ac](https://github.com/fulgas/claude-a2a/commit/d8277ac40880fd8bd1936c9bcacb3d24959fec51))
+* **server:** the card's input modes name every part the server takes ([f02b6a3](https://github.com/fulgas/claude-a2a/commit/f02b6a395d072b23c5b7492f271fd937847b0110))
+
 ## [0.9.1](https://github.com/fulgas/claude-a2a/compare/v0.9.0...v0.9.1) (2026-11-14)
 
 
