@@ -269,7 +269,7 @@ flowchart LR
 - Claude Code's own permission prompts still apply to what the task does.
 
 **Supply chain.** What runs on a user's machine is the hooks module and `dist/a2a.mjs`, which bundles the bridge's dependencies, so those are guarded hardest.
-- Only the release workflow commits `dist/a2a.mjs`: it rebuilds it from the release pull request's source and lockfile, so the bundle cannot carry code the source does not. CI refuses any other pull request that changes `dist/`.
+- Only the release workflow commits `dist/a2a.mjs`: it rebuilds it from the release pull request's source and lockfile, so the bundle cannot carry code the source does not. CI refuses any other pull request that changes `dist/`, and fails the release pull request until it holds that bundle and points the marketplace at its tag.
 - `npm audit` gates known vulnerabilities in the bundled dependencies, and dependency review refuses a pull request that adds a vulnerable or GPL-licensed one. `npm audit signatures` checks every package against the registry's signatures and provenance.
 - Every GitHub Action is pinned to a commit SHA; zizmor audits the workflows, and every workflow token has only the permissions its job needs. CodeQL analyses the code and the workflows; OpenSSF Scorecard rates the whole repository.
 - The Zola binary that builds the docs site is checked against its SHA-256 before it runs.
