@@ -141,6 +141,7 @@ function serveArgs(options: PluginOptions, typedArgs: string[]) {
     ['--tls-client-ca', 'tlsClientCa'],
     ['--card-signing-key', 'cardSigningKey'],
     ['--card-extensions', 'cardExtensions'],
+    ['--input-modes', 'inputModes'],
   ] as const) {
     if (options[option]) saved.push(flag, String(options[option]))
   }

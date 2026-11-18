@@ -360,12 +360,71 @@ describe('challenges', async () => {
   })
 })
 
+// The JSON-RPC error a SendMessage with `parts` gets, or undefined when it is taken.
+const sendParts = async (url, parts) => {
+  const res = await fetch(`${url}/a2a/jsonrpc`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'a2a-version': '1.0' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'SendMessage',
+      params: { message: { messageId: randomUUID(), role: 'ROLE_USER', parts } },
+    }),
+  })
+  return (await res.json()).error
+}
+const filePart = (mediaType, filename = 'f') => ({ raw: Buffer.from('x').toString('base64'), filename, mediaType })
+
 describe('input modes', async () => {
   const { url } = await serve()
 
-  test('the card takes text, JSON and any file, as the inbox does', async () => {
+  test('the card takes text and JSON by default', async () => {
     const card = await (await fetch(`${url}/.well-known/agent-card.json`)).json()
-    assert.deepEqual(card.defaultInputModes, ['text/plain', 'application/json', '*/*'])
+    assert.deepEqual(card.defaultInputModes, ['text/plain', 'application/json'])
+  })
+
+  test('text and data are taken, and a file is refused with ContentTypeNotSupportedError', async () => {
+    assert.equal(await sendParts(url, [{ text: 'hi' }, { data: { a: 1 } }]), undefined)
+    const refused = await sendParts(url, [{ text: 'hi' }, filePart('application/zip')])
+    assert.equal(refused.code, -32005)
+    assert.match(refused.message, /application\/zip/)
+    assert.equal((await sendParts(url, [{ raw: 'eA==' }])).code, -32005)
+  })
+})
+
+describe('input modes from the option', async () => {
+  const { url } = await serve('--input-modes', 'text/plain, image/*,Application/PDF')
+
+  test('are what the card says, and what is taken', async () => {
+    const card = await (await fetch(`${url}/.well-known/agent-card.json`)).json()
+    assert.deepEqual(card.defaultInputModes, ['text/plain', 'image/*', 'application/pdf'])
+    assert.equal(await sendParts(url, [filePart('image/png'), filePart('application/pdf; x=1')]), undefined)
+    assert.equal((await sendParts(url, [{ data: { a: 1 } }])).code, -32005)
+  })
+
+  test('are refused unless each is a media type', async () => {
+    for (const bad of ['', 'text', 'text/plain,,', '*/plain'])
+      assert.match(
+        (await client('serve', '--control', '/tmp/a2a-unused.sock', '--input-modes', bad)).error,
+        /--input-modes/,
+      )
+  })
+})
+
+describe('input modes over gRPC', async () => {
+  const { url } = await serve()
+
+  test('refuse a file too', async () => {
+    const factory = new ClientFactory(
+      ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
+        transports: [new GrpcTransportFactory({ grpcChannelCredentials: grpc.credentials.createInsecure() })],
+        preferredTransports: ['GRPC'],
+      }),
+    )
+    const c = await factory.createFromAgentCard(await new DefaultAgentCardResolver().resolve(url))
+    const message = { messageId: randomUUID(), role: 'ROLE_USER', parts: [filePart('application/zip')] }
+    await assert.rejects(c.sendMessage(SendMessageRequest.fromJSON({ message })), /application\/zip|INVALID_ARGUMENT/)
   })
 })
 

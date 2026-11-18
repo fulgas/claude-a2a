@@ -115,6 +115,12 @@
       "description": "A JSON file holding an array of A2A extensions the card declares, each {uri, description?, required?, params?}, besides Secure Passport. Checked at start, and signed with the card. Empty: none.",
       "default": ""
     },
+    "inputModes": {
+      "type": "string",
+      "title": "Server: input media types",
+      "description": "The media types a caller may send, separated by commas: text/plain for text, application/json for data, and a file's own type, such as image/png or image/*. The card declares them, and any other part is refused with ContentTypeNotSupportedError before Claude sees it. */* takes any file: only for callers you trust.",
+      "default": "text/plain,application/json"
+    },
     "maxConcurrentTasks": {
       "type": "number",
       "title": "Server: tasks at once",
