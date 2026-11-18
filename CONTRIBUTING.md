@@ -34,7 +34,7 @@ just try       # a Claude Code session with your working copy loaded
 
 ## Releases
 
-Nobody tags by hand. On every push to `main`, release-please keeps a release pull request open with the next version and its `CHANGELOG.md` entry. Merging it tags `vX.Y.Z` and publishes an immutable GitHub Release.
+Nobody tags by hand. On every push to `main`, release-please keeps a release pull request open with the next version and its `CHANGELOG.md` entry. Merging it tags `vX.Y.Z` and publishes an immutable GitHub Release. Merge it only once its checks pass: CI holds it back until the release workflow has committed its bundle.
 
 ## Conduct
 

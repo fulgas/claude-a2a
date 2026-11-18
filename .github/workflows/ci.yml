@@ -33,6 +33,17 @@ jobs:
       - run: npm ci
       - name: Bundle the bridge, which the tests run
         run: npm run build
+      # The release pull request is not ready until the bundle job has committed to it: until then, it would tag a
+      # dist/ from the last release, with a marketplace still pointing there.
+      - name: The release pull request holds its own bundle and points the marketplace at its tag
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')
+        run: |
+          git diff --exit-code dist/
+          node -e '
+            const ref = require("./.claude-plugin/marketplace.json").plugins[0].source.ref
+            const want = `v${require("./package.json").version}`
+            if (ref !== want) throw new Error(`the marketplace points at ${ref}, not ${want}`)
+          '
       - name: The bridge, end to end over JSON-RPC, HTTP+JSON and gRPC
         run: node --test bridge/*.test.mjs
       - name: The plugin's hooks, against the engine
