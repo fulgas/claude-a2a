@@ -9,7 +9,11 @@ async function* spawned(pieces: string[], code = 0) {
   return { value: { code, signal: null } }
 }
 
+// No managed settings: the plugin's options are the ones Claude Code gives it.
+const noManagedSettings = (on: Parameters<Parameters<typeof test>[1]>[1]) => on('settings.read', () => ({ value: {} }))
+
 test('session start registers the client tools and server commands', async ($, on) => {
+  noManagedSettings(on)
   const tools: string[] = []
   const commands: string[] = []
   on('tool.register', (_, e) => {
@@ -29,6 +33,7 @@ test('session start registers the client tools and server commands', async ($, o
 })
 
 test('send runs the bridge with the call input and returns its result line', async ($, on) => {
+  noManagedSettings(on)
   let argv: readonly string[] = []
   on('process.spawn', async function* (_, e) {
     argv = e.argv
@@ -54,6 +59,7 @@ test('send runs the bridge with the call input and returns its result line', asy
 })
 
 test('a bridge error comes back as a tool error', async ($, on) => {
+  noManagedSettings(on)
   on('process.spawn', async function* () {
     return yield* spawned(['{"type":"error","error":"fetch failed"}\n'], 1)
   })
@@ -95,6 +101,7 @@ test(
     },
   },
   async ($, on) => {
+    noManagedSettings(on)
     let request: { argv: readonly string[]; env?: Record<string, string> } = { argv: [] }
     on('process.spawn', async function* (_, e) {
       request = e
@@ -160,6 +167,57 @@ test(
 )
 
 test(
+  'under managed settings that configure the plugin, its options come from them alone',
+  {
+    // Merged options, as Claude Code gives them: what a user settings.json or a stored credential adds included.
+    options: { apiKey: 'planted', tasksPerMinute: 999, oidcIssuer: 'https://id.example.test', port: 9400 },
+  },
+  async ($, on) => {
+    let request: { argv: readonly string[]; env?: Record<string, string> } = { argv: [] }
+    on('process.spawn', async function* (_, e) {
+      request = e
+      return yield* spawned(['{"type":"ready","card":"c","jsonrpc":"j","rest":"r","grpc":"g"}\n'])
+    })
+    on('ui.status', () => ({ value: undefined }))
+    on('settings.read', (_, e) => ({
+      value:
+        e.source === 'policy'
+          ? {
+              pluginConfigs: {
+                'a2a@pheme-plugins': { options: { oidcIssuer: 'https://id.example.test', port: 9400 } },
+                'other@pheme-plugins': { options: { apiKey: 'not-ours' } },
+              },
+            }
+          : {},
+    }))
+
+    await $.command.run({ command: 'a2a-serve', args: '' })
+
+    const argv = request.argv.join(' ')
+    expect(argv).toContain('--port 9400')
+    expect(argv).toContain('--oidc-issuer https://id.example.test')
+    expect(argv).not.toContain('--tasks-per-minute')
+    expect(request.env).toEqual({})
+  },
+)
+
+test('when the managed settings cannot be read, the server does not start', async ($, on) => {
+  let spawnedBridge = false
+  on('process.spawn', async function* () {
+    spawnedBridge = true
+    return yield* spawned([])
+  })
+  on('settings.read', () => {
+    throw new Error('policy unavailable')
+  })
+
+  const ran = await $.command.run({ command: 'a2a-serve', args: '' })
+
+  expect(ran.text).toContain('the managed settings could not be read')
+  expect(spawnedBridge).toBe(false)
+})
+
+test(
   'client calls carry the saved client credentials in the environment, never in argv',
   {
     options: {
@@ -179,6 +237,7 @@ test(
     },
   },
   async ($, on) => {
+    noManagedSettings(on)
     let request: { argv: readonly string[]; env?: Record<string, string> } = { argv: [] }
     on('process.spawn', async function* (_, e) {
       request = e
@@ -207,6 +266,7 @@ test(
 )
 
 test('a sign-in is shown to the person, and the token it gave is passed to the next call', async ($, on) => {
+  noManagedSettings(on)
   const envs: (Record<string, string> | undefined)[] = []
   on('process.spawn', async function* (_, e) {
     envs.push(e.env)
@@ -269,6 +329,7 @@ function bridgeWithTask(on: Parameters<Parameters<typeof test>[1]>[1], task = 'r
 const settled = () => new Promise(resolve => setTimeout(resolve, 20))
 
 test('by default a task runs in the main thread, and that turn answers it', async ($, on) => {
+  noManagedSettings(on)
   const { replies, release } = bridgeWithTask(on)
   const submitted: string[] = []
   on('prompt.submit', (_, e) => {
@@ -311,6 +372,7 @@ for (const [taskMode, subagentType] of [
     `taskMode ${taskMode} runs a task as ${subagentType ? 'a fork of this conversation' : 'a fresh subagent'}`,
     { options: { taskMode } },
     async ($, on) => {
+      noManagedSettings(on)
       const { release } = bridgeWithTask(on)
       const spawned: Record<string, unknown>[] = []
       on('agent.spawn', (_, e) => {
@@ -332,6 +394,7 @@ for (const [taskMode, subagentType] of [
 }
 
 test('an inline task the conversation cannot take fails alone, and the server keeps running', async ($, on) => {
+  noManagedSettings(on)
   const { replies, release, statuses } = bridgeWithTask(on)
   on('prompt.submit', () => {
     throw new Error('the conversation is closed')
@@ -350,6 +413,7 @@ test(
   'a task that cannot start fails alone, and the server keeps running',
   { options: { taskMode: 'subagent' } },
   async ($, on) => {
+    noManagedSettings(on)
     const { replies, release, statuses } = bridgeWithTask(on)
     on('agent.spawn', () => {
       throw new Error('Agent is denied by permissions.deny')
@@ -368,6 +432,7 @@ test(
 )
 
 test('a typed --task-mode wins over the saved one and stays out of the bridge argv', async ($, on) => {
+  noManagedSettings(on)
   let argv: readonly string[] = []
   on('process.spawn', async function* (_, e) {
     argv = e.argv
