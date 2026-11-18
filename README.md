@@ -92,6 +92,7 @@ Set defaults in `/plugin`, under the plugin's options, or in `settings.json`:
 | `tasksPerMinute` | `30` | Tasks one caller may start in a minute. `0`: no limit |
 | `authFailuresPerMinute` | `20` | Failed sign-ins a client may make in a minute before it is refused (HTTP 429). `0`: no limit |
 | `cardExtensions` | empty | JSON file holding an array of A2A extensions the card declares, each `{uri, description?, required?, params?}`. Checked at start; declared beside Secure Passport, each once, and signed with the card |
+| `inputModes` | `text/plain,application/json` | Media types a caller may send, separated by commas: `text/plain` for text, `application/json` for data, and a file's own type, such as `image/png` or `image/*`. The card declares them, and any other part is refused with `ContentTypeNotSupportedError` before Claude sees it. `*/*` takes any file: only for callers you trust. |
 | `maxRequestMiB` | `16` | MiB in one request, on every transport; a larger one is refused (HTTP 413, gRPC `RESOURCE_EXHAUSTED`) |
 | `outboxMaxFiles` | `15` | Files a task may answer with from its outbox |
 | `outboxMaxFileMiB` | `32` | MiB in one outbox file; sent in base64, about a third more on the wire |
@@ -124,7 +125,7 @@ The plugin covers the security of the [A2A specification](https://a2a-protocol.o
 
 The agent card advertises whichever schemes are on, and stays public, so clients can learn what to send. A refusal is a 401 with `WWW-Authenticate` challenges, or a 403 for a token without a required scope, with a JSON error body: `application/a2a+json` over REST, a JSON-RPC error over JSON-RPC. With `cardSigningKey`, the card is signed, and its public key is served at `/.well-known/jwks.json`. A signed-in caller gets the extended agent card, which adds the limits it will meet.
 
-**What it takes.** The card's input modes are `text/plain`, `application/json` and `*/*`: text, data, and a file of any type.
+**What it takes.** A caller may send the media types `inputModes` names, `text/plain` and `application/json` by default: text and data, and no files. The card declares them, and a part of any other type is refused with `ContentTypeNotSupportedError` on every transport, before a task starts. To take files, name their types, such as `image/*,application/pdf`; `*/*` takes any file, so keep it for callers you trust.
 
 **Large requests.** A text or data part over 64 KiB, and any part of bytes, does not enter the prompt: the bridge writes it to the task's inbox, `$TMPDIR/a2a-inbox-<random>/<random>/` (`/tmp` when `TMPDIR` is unset), as a read-only file, and the prompt names it in one line, such as `[part 2: data, 9.0 MiB, in /tmp/a2a-inbox-…/part-2.json]`. A data part's file holds its JSON as sent. Claude reads it with its tools (a settings.json rule such as `Read(//tmp/a2a-inbox-*/**)` allows that). The inbox is removed once the task is answered.
 

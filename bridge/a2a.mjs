@@ -14,6 +14,7 @@
 //                     [--public-host NAME] [--transports all|http|grpc] [--api-key K (or $A2A_SERVE_API_KEY)]
 //                     [--oidc-issuer URL --oidc-audience AUD [--required-scopes "S1 S2"]]
 //                     [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--card-signing-key PEM|JWK] [--card-extensions FILE]
+//                     [--input-modes text/plain,application/json]
 //                     [--max-concurrent-tasks 4] [--tasks-per-minute 30] [--auth-failures-per-minute 20]
 //                     [--max-request-mib 16] [--outbox-max-files 15] [--outbox-max-file-mib 32] [--outbox-max-total-mib 90]
 //
@@ -46,6 +47,7 @@ import {
   RestTransportFactory,
 } from '@a2a-js/sdk/client'
 import { GrpcTransportFactory } from '@a2a-js/sdk/client/grpc'
+import { ContentTypeNotSupportedError } from '@a2a-js/sdk/errors'
 import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server'
 import { agentCardHandler, jsonRpcHandler, restHandler } from '@a2a-js/sdk/server/express'
 import { A2AService, grpcService } from '@a2a-js/sdk/server/grpc'
@@ -280,6 +282,32 @@ class Caller {
   }
 }
 
+// The media types a card says it takes, from a comma-separated list: type/subtype, type/*, or */*.
+function inputModes(list) {
+  const modes = list.split(',').map(m => m.trim().toLowerCase())
+  for (const mode of modes) {
+    if (!/^([\w.+-]+\/([\w.+-]+|\*)|\*\/\*)$/.test(mode))
+      throw new Error(
+        `--input-modes must be media types such as text/plain or image/*, separated by commas, not "${list}"`,
+      )
+  }
+  return modes
+}
+
+// A part's media type as A2A reads it: text is text/plain and data is application/json unless the part names one, and
+// a file that names none is application/octet-stream. Parameters such as charset are not part of it.
+const partType = part =>
+  (
+    part.mediaType ||
+    { text: 'text/plain', data: 'application/json' }[part.content?.$case] ||
+    'application/octet-stream'
+  )
+    .split(';')[0]
+    .trim()
+    .toLowerCase()
+const takes = (modes, type) =>
+  modes.some(m => m === '*/*' || m === type || (m.endsWith('/*') && type.startsWith(m.slice(0, -1))))
+
 // The extensions a card declares beyond the bridge's own, from a JSON file holding an array of A2A extension
 // declarations ({uri, description?, required?, params?}), checked before the card is built and signed.
 function cardExtensions(path) {
@@ -361,6 +389,7 @@ async function serve(opts) {
   for (const [i, { uri }] of extensions.entries()) {
     if (extensions.findIndex(e => e.uri === uri) !== i) throw new Error(`the card extension ${uri} is declared twice`)
   }
+  const modes = inputModes(opts['input-modes'])
   const withHttp = opts.transports !== 'grpc'
   const withGrpc = opts.transports !== 'http'
 
@@ -385,8 +414,8 @@ async function serve(opts) {
       extendedAgentCard: auth.isConfigured,
       ...(extensions.length > 0 && { extensions }),
     },
-    // What the inbox takes: text, data as JSON, and a file of any type.
-    defaultInputModes: ['text/plain', 'application/json', '*/*'],
+    // What a caller may send; any other part is refused before Claude sees it.
+    defaultInputModes: modes,
     defaultOutputModes: OUTPUT_MODES,
     skills: [
       {
@@ -543,6 +572,27 @@ async function serve(opts) {
     async ctx => (ctx.user?.isAuthenticated ? extendedCard : card),
     signer?.sign,
   )
+  // Every transport sends a message through the request handler, so a part of a type the card does not name is
+  // refused here, on all of them, before a task starts.
+  const checkParts = message => {
+    for (const part of message?.parts ?? []) {
+      const type = partType(part)
+      if (!takes(modes, type))
+        throw new ContentTypeNotSupportedError(
+          `a part of type ${type} is not one this agent takes: ${modes.join(', ')}`,
+        )
+    }
+  }
+  const sendMessage = requestHandler.sendMessage.bind(requestHandler)
+  const sendMessageStream = requestHandler.sendMessageStream.bind(requestHandler)
+  requestHandler.sendMessage = async (request, context) => {
+    checkParts(request.message)
+    return sendMessage(request, context)
+  }
+  requestHandler.sendMessageStream = async function* (request, context) {
+    checkParts(request.message)
+    yield* sendMessageStream(request, context)
+  }
 
   const app = express()
   // The agent card stays public: it is how clients learn which credentials to send. The handler sends what the
@@ -594,14 +644,23 @@ async function serve(opts) {
     const body = express.json({ limit: `${maxRequestMiB}mb`, type: ['application/json', 'application/a2a+json'] })
     app.use('/a2a/jsonrpc', limited, authenticated, body, jsonRpcHandler({ requestHandler, userBuilder }))
     app.use('/a2a/rest', limited, authenticated, body, restHandler({ requestHandler, userBuilder }))
-    // The body parser's refusals: a request over maxRequestMiB, or one that is not JSON.
-    app.use('/a2a', (err, req, res, nextMw) =>
-      err.type === 'entity.too.large'
-        ? refuse(req, res, 413, 'RESOURCE_EXHAUSTED', `the request is over ${maxRequestMiB} MiB`)
-        : err.status === 400
-          ? refuse(req, res, 400, 'INVALID_ARGUMENT', 'the request is not JSON')
-          : nextMw(err),
-    )
+    // Every error that reaches here is a JSON error too, never Express's own page, which can carry a stack trace: the
+    // body parser's refusals keep their status (413 over maxRequestMiB, 415 for an encoding it cannot read, 400 for
+    // anything that is not JSON), and anything else is a 500 that says nothing more.
+    app.use('/a2a', (err, req, res, _nextMw) => {
+      if (err.type === 'entity.too.large')
+        return refuse(req, res, 413, 'RESOURCE_EXHAUSTED', `the request is over ${maxRequestMiB} MiB`)
+      if (err.expose && err.status >= 400 && err.status < 500)
+        return refuse(
+          req,
+          res,
+          err.status,
+          'INVALID_ARGUMENT',
+          err.status === 400 ? 'the request is not JSON' : err.message,
+        )
+      console.error(`a2a: ${err?.stack ?? err}`)
+      return refuse(req, res, 500, 'INTERNAL', 'internal error')
+    })
   }
   // With a client CA the TLS layer refuses any connection without a certificate it signed, on both ports.
   const httpServer = tls
@@ -721,6 +780,7 @@ const { positionals, values } = parseArgs({
     host: { type: 'string', default: '127.0.0.1' },
     'public-host': { type: 'string' },
     'card-extensions': { type: 'string' },
+    'input-modes': { type: 'string', default: 'text/plain,application/json' },
     port: { type: 'string', default: '41241' },
     'grpc-port': { type: 'string', default: '41242' },
     transports: { type: 'string', default: 'all' },
