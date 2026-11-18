@@ -167,7 +167,7 @@ Then, in `managed-settings.json`, declare that marketplace, enable the plugin, a
 }
 ```
 
-- Options other than secrets go in `pluginConfigs`; secrets stay in the environment, as above.
+- The managed `pluginConfigs` entry is then the server's only source of options: an option it leaves out takes its default, whatever a user `settings.json` or a stored credential says, so nothing written to the config folder can add an API key beside OIDC or raise a limit. Name every option the server needs there; an `apiKey` put there is readable by anyone who can read the managed file, so prefer OIDC.
 - With `allowManagedPermissionRulesOnly`, the rules this section lists (`Agent`, `Read` on the inbox, `Edit` on the outbox) go in the managed `permissions` too.
 - `disableSideloadFlags` makes Claude Code refuse `--plugin-dir`, so a script cannot load a plugin of its own.
 - The hook settings alone leave a writable `~/.claude` able to reach the model. Each of the other keys closes one way:

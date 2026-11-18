@@ -98,6 +98,17 @@ async function reply($: EngineInterface, taskId: string, ok: boolean, text: stri
   })
 }
 
+// The server's options. Claude Code merges a plugin's options from every source, so under managed settings a user
+// settings.json or a stored credential could add one the managed file leaves out: an apiKey beside OIDC, or a higher
+// limit. When managed settings configure this plugin, their options are the only ones.
+async function serverOptions($: EngineInterface, options: PluginOptions): Promise<PluginOptions> {
+  const policy = (await $.settings.read({ source: 'policy' })) as {
+    pluginConfigs?: Record<string, { options?: PluginOptions }>
+  }
+  const managed = Object.entries(policy?.pluginConfigs ?? {}).filter(([id]) => id.split('@')[0] === $.plugin.name)
+  return managed.length === 0 ? options : Object.assign({}, ...managed.map(([, config]) => config.options ?? {}))
+}
+
 // Saved settings (userConfig) first; flags typed after /a2a-serve win, as the
 // bridge's parseArgs keeps the last value. The API key travels in env, not argv.
 // --task-mode is the plugin's, not the bridge's, so it is taken out here.
@@ -305,11 +316,15 @@ export const register: Register = (on, options) => {
       }),
       $.command.register({ name: 'a2a-stop', description: 'Stop the A2A server' }),
     ])
-    if (options.autoServe) {
-      void startServer($, serveArgs(options, [])).then(info => {
-        if (info.type !== 'ready') $.ui.toast(`A2A server failed: ${info.error}`)
-      })
-    }
+    void serverOptions($, options).then(
+      serving => {
+        if (!serving.autoServe) return
+        void startServer($, serveArgs(serving, [])).then(info => {
+          if (info.type !== 'ready') $.ui.toast(`A2A server failed: ${info.error}`)
+        })
+      },
+      err => $.ui.toast(`A2A server failed: the managed settings could not be read: ${err?.message ?? err}`),
+    )
     return started
   })
 
@@ -380,7 +395,13 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'a2a-serve' }, async ($, e) => {
     if (server) return { text: describeServer(server.info, server.taskMode) }
-    const info = await startServer($, serveArgs(options, e.args.split(/\s+/).filter(Boolean)))
+    let serving: PluginOptions
+    try {
+      serving = await serverOptions($, options)
+    } catch (err) {
+      return { text: `A2A server failed: the managed settings could not be read: ${(err as Error)?.message ?? err}` }
+    }
+    const info = await startServer($, serveArgs(serving, e.args.split(/\s+/).filter(Boolean)))
     return {
       text:
         info.type === 'ready' && server ? describeServer(info, server.taskMode) : `A2A server failed: ${info.error}`,
