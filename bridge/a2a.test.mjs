@@ -393,6 +393,28 @@ describe('input modes', async () => {
   })
 })
 
+describe('a body the server cannot read', async () => {
+  const { url } = await serve()
+
+  test("is a JSON error in the binding's form, with no stack trace", async () => {
+    for (const [path, type] of [
+      ['a2a/rest/message:send', 'application/a2a+json; charset=utf-8'],
+      ['a2a/jsonrpc', 'application/json; charset=utf-8'],
+    ]) {
+      const res = await fetch(`${url}/${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-encoding': 'x-unknown' },
+        body: '{}',
+      })
+      assert.equal(res.status, 415, path)
+      assert.equal(res.headers.get('content-type'), type, path)
+      const text = await res.text()
+      assert.doesNotMatch(text, /node_modules|at \w+ \(/, path)
+      assert.ok(JSON.parse(text).error, path)
+    }
+  })
+})
+
 describe('input modes from the option', async () => {
   const { url } = await serve('--input-modes', 'text/plain, image/*,Application/PDF')
 

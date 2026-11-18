@@ -644,14 +644,23 @@ async function serve(opts) {
     const body = express.json({ limit: `${maxRequestMiB}mb`, type: ['application/json', 'application/a2a+json'] })
     app.use('/a2a/jsonrpc', limited, authenticated, body, jsonRpcHandler({ requestHandler, userBuilder }))
     app.use('/a2a/rest', limited, authenticated, body, restHandler({ requestHandler, userBuilder }))
-    // The body parser's refusals: a request over maxRequestMiB, or one that is not JSON.
-    app.use('/a2a', (err, req, res, nextMw) =>
-      err.type === 'entity.too.large'
-        ? refuse(req, res, 413, 'RESOURCE_EXHAUSTED', `the request is over ${maxRequestMiB} MiB`)
-        : err.status === 400
-          ? refuse(req, res, 400, 'INVALID_ARGUMENT', 'the request is not JSON')
-          : nextMw(err),
-    )
+    // Every error that reaches here is a JSON error too, never Express's own page, which can carry a stack trace: the
+    // body parser's refusals keep their status (413 over maxRequestMiB, 415 for an encoding it cannot read, 400 for
+    // anything that is not JSON), and anything else is a 500 that says nothing more.
+    app.use('/a2a', (err, req, res, _nextMw) => {
+      if (err.type === 'entity.too.large')
+        return refuse(req, res, 413, 'RESOURCE_EXHAUSTED', `the request is over ${maxRequestMiB} MiB`)
+      if (err.expose && err.status >= 400 && err.status < 500)
+        return refuse(
+          req,
+          res,
+          err.status,
+          'INVALID_ARGUMENT',
+          err.status === 400 ? 'the request is not JSON' : err.message,
+        )
+      console.error(`a2a: ${err?.stack ?? err}`)
+      return refuse(req, res, 500, 'INTERNAL', 'internal error')
+    })
   }
   // With a client CA the TLS layer refuses any connection without a certificate it signed, on both ports.
   const httpServer = tls
