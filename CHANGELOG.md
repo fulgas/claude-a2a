@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.10.0](https://github.com/fulgas/claude-a2a/compare/v0.9.2...v0.10.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **server:** files are refused unless inputModes names their type. To take them again, set inputModes, such as text/plain,application/json,image/* or text/plain,application/json,*/* for any file.
+
+### Features
+
+* **server:** the input modes are an option, text and JSON by default ([00cab7d](https://github.com/fulgas/claude-a2a/commit/00cab7d38235ff92638fe9e92668cefe394e34d3))
+
+
+### Bug Fixes
+
+* **server:** every body the server cannot read gets a JSON error, never a stack trace ([bdb38d7](https://github.com/fulgas/claude-a2a/commit/bdb38d7ac253c724a9c8f12f8c15dc55f28e792d))
+
 ## [0.9.2](https://github.com/fulgas/claude-a2a/compare/v0.9.1...v0.9.2) (2026-11-17)
 
 
