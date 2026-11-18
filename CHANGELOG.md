@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/fulgas/claude-a2a/compare/v0.10.0...v0.10.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **release:** a release pull request cannot pass CI without its own bundle ([82b148c](https://github.com/fulgas/claude-a2a/commit/82b148c647c26598bc4aa22ea08377f77097dc9d))
+
 ## [0.10.0](https://github.com/fulgas/claude-a2a/compare/v0.9.2...v0.10.0) (2026-11-18)
 
 
