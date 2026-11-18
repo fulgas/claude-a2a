@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/fulgas/claude-a2a/compare/v0.10.1...v0.10.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* **server:** under managed settings that configure the plugin, the server takes their options alone ([b74546d](https://github.com/fulgas/claude-a2a/commit/b74546da5bf9299231c3b3e64f1b3b3a5a1e59ca))
+
 ## [0.10.1](https://github.com/fulgas/claude-a2a/compare/v0.10.0...v0.10.1) (2026-11-18)
 
 
