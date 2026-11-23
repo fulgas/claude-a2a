@@ -183,6 +183,8 @@ This was checked with Claude Code 2.1.322: a hook and permissions planted in the
 
 **Limits.** Each task runs Claude on your tokens, so the server caps them: `maxConcurrentTasks` at once, and `tasksPerMinute` per caller (an API key, a JWT subject, or anonymous). A task over a limit fails at once, before any subagent starts, with a status that says which. A client that keeps failing to sign in is refused for the rest of the minute after `authFailuresPerMinute` attempts, so a key cannot be guessed.
 
+**Health.** `GET /livez` is 200 while the server is up. `GET /readyz` is 200 when Claude can take a task, or 503 with a reason when it cannot. Both are unauthenticated JSON, and the card declares them in the [health probes extension](docs/extensions/health-v1.md). After every turn the person didn't stop, the plugin tells the server whether Claude answered. A turn without an answer makes the server not ready, until one answers or for 60 seconds. While not ready, a new task is refused with the reason: 503 over HTTP, `UNAVAILABLE` over gRPC. A container's health check can ask `/readyz` instead of fetching the card.
+
 **Client.** The tools read the remote agent's card, check its signature, and meet one of its security requirements, preferring one that needs no person. An agent whose card asks for nothing gets no credential.
 
 - **API key** in the header, cookie or query parameter the card names, from `clientApiKey` or `$A2A_API_KEY`

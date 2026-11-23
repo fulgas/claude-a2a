@@ -89,6 +89,20 @@ const withOutbox = (text: string, outbox: unknown) =>
     ? `${text}\n\nTo answer with files as well as text, write them directly in ${outbox}: each file becomes an artifact named after it without its extension, and a .json file must hold one JSON object, sent as data. No links or folders there; anything else fails the task.`
     : text
 
+// Whether Claude answered its last turn, so the bridge's /readyz and its refusals know. A turn's end reason is a
+// short word from Claude Code; it is cut to letters, digits and dashes, so no error text can reach a caller.
+async function reportHealth($: EngineInterface, reason: string) {
+  if (!server) return
+  const word = reason.replace(/[^\w-]/g, '').slice(0, 40)
+  const body =
+    reason === 'answer'
+      ? { ready: true }
+      : { ready: false, reason: `Claude's last turn ended without an answer (${word})` }
+  await $.http
+    .fetch('http://a2a/health', { method: 'POST', socketPath: server.socket, body: JSON.stringify(body) })
+    .catch(() => undefined)
+}
+
 async function reply($: EngineInterface, taskId: string, ok: boolean, text: string) {
   if (!server) return
   await $.http.fetch('http://a2a/reply', {
@@ -391,6 +405,8 @@ export const register: Register = (on, options) => {
         e.answer || `Claude Code's turn ended without an answer (${e.reason})`,
       )
     }
+    // Every turn, a task's or the person's own, says whether Claude can answer; one the person stopped says nothing.
+    if (!e.isAborted) await reportHealth($, String(e.reason))
     return done
   })
 

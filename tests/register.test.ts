@@ -330,6 +330,8 @@ test('a sign-in is shown to the person, and the token it gave is passed to the n
 // as POST /reply bodies on the control socket.
 function bridgeWithTask(on: Parameters<Parameters<typeof test>[1]>[1], task = 'review the diff') {
   const replies: { taskId: string; ok: boolean; text: string }[] = []
+  // What the plugin told the bridge about Claude after each turn, as POST /health bodies.
+  const health: unknown[] = []
   // What the status line was set to: the server clears it when it stops.
   const statuses: unknown[] = []
   let release: () => void = () => {}
@@ -344,7 +346,9 @@ function bridgeWithTask(on: Parameters<Parameters<typeof test>[1]>[1], task = 'r
     return { value: { code: 0, signal: null } }
   })
   on('http.fetch', (_, e) => {
-    replies.push(JSON.parse(String(e.init?.body)))
+    const body = JSON.parse(String(e.init?.body))
+    if (String(e.url).endsWith('/health')) health.push(body)
+    else replies.push(body)
     return { value: { status: 204, headers: {}, body: '' } }
   })
   on('ui.status', (_, e) => {
@@ -352,7 +356,7 @@ function bridgeWithTask(on: Parameters<Parameters<typeof test>[1]>[1], task = 'r
     return { value: undefined }
   })
   on('ui.toast', () => ({ value: undefined }))
-  return { replies, release, statuses }
+  return { replies, release, statuses, health }
 }
 const settled = () => new Promise(resolve => setTimeout(resolve, 20))
 
@@ -388,6 +392,28 @@ test('by default a task runs in the main thread, and that turn answers it', asyn
   await $.turn.complete({ turnId: 't1', answer: 'looks good', reason: 'answer', durationMs: 1, isAborted: false })
 
   expect(replies).toEqual([{ taskId: 'task-1', ok: true, text: 'looks good' }])
+  release()
+})
+
+test('after every turn the plugin tells the bridge whether Claude answered, unless the person stopped it', async ($, on) => {
+  noManagedSettings(on)
+  const { health, release } = bridgeWithTask(on)
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  await $.command.run({ command: 'a2a-serve', args: '' })
+  await settled()
+
+  const end = (turnId: string, reason: string, isAborted = false) =>
+    $.turn.complete({ turnId, answer: '', reason, durationMs: 1, isAborted })
+  await end('a', 'api-error')
+  await end('b', 'answer', true)
+  await end('c', 'answer')
+
+  expect(health).toEqual([
+    { ready: false, reason: "Claude's last turn ended without an answer (api-error)" },
+    { ready: true },
+  ])
   release()
 })
 

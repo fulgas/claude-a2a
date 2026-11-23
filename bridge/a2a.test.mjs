@@ -105,7 +105,7 @@ async function serveOn(port, grpcPort, { replyAfterMs = 0, ok = true, files = {}
     })
   })
   const up = await ready
-  return { url: new URL(up.card).origin, ready: up, callers, outboxes, tasks }
+  return { url: new URL(up.card).origin, ready: up, control, callers, outboxes, tasks }
 }
 
 describe('transports all', async () => {
@@ -415,6 +415,88 @@ describe('a body the server cannot read', async () => {
   })
 })
 
+const HEALTH = 'https://github.com/fulgas/claude-a2a/blob/main/docs/extensions/health-v1.md'
+
+describe('health probes', async () => {
+  const { url, control } = await serve()
+  // What the plugin tells the bridge after a turn: whether Claude answered.
+  const report = body =>
+    new Promise(resolve =>
+      http
+        .request({ socketPath: control, path: '/health', method: 'POST' }, res => {
+          res.resume()
+          resolve(res.statusCode)
+        })
+        .end(JSON.stringify(body)),
+    )
+  const probe = async path => {
+    const res = await fetch(`${url}${path}`)
+    return { status: res.status, body: await res.json() }
+  }
+  const send = (path, body) =>
+    fetch(`${url}/${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'a2a-version': '1.0' },
+      body: JSON.stringify(body),
+    })
+  const message = () => ({ messageId: randomUUID(), role: 'ROLE_USER', parts: [{ text: 'hi' }] })
+  const reason = "Claude's last turn ended without an answer (api-error)"
+
+  test('the card declares them, as paths on its own origin', async () => {
+    const card = await (await fetch(`${url}/.well-known/agent-card.json`)).json()
+    assert.deepEqual(
+      // Protobuf JSON leaves out a false `required`, its default.
+      card.capabilities.extensions.find(e => e.uri === HEALTH),
+      { uri: HEALTH, description: 'Health probes', params: { livez: '/livez', readyz: '/readyz' } },
+    )
+  })
+
+  test('livez and readyz are 200 while Claude can take a task', async () => {
+    assert.deepEqual(await probe('/livez'), { status: 200, body: { status: 'live' } })
+    assert.deepEqual(await probe('/readyz'), { status: 200, body: { status: 'ready' } })
+  })
+
+  test('once the plugin reports Claude cannot answer, readyz says why and every transport refuses a task', async () => {
+    assert.equal(await report({ ready: false, reason }), 204)
+    assert.deepEqual(await probe('/readyz'), { status: 503, body: { status: 'not_ready', reason } })
+    assert.equal((await probe('/livez')).status, 200)
+
+    const rest = await send('a2a/rest/message:send', { message: message() })
+    assert.equal(rest.status, 503)
+    assert.equal(rest.headers.get('content-type'), 'application/a2a+json; charset=utf-8')
+    const { error } = await rest.json()
+    assert.equal(error.status, 'UNAVAILABLE')
+    assert.match(error.message, /not ready: Claude's last turn ended without an answer/)
+
+    const rpc = await send('a2a/jsonrpc', {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'SendMessage',
+      params: { message: message() },
+    })
+    assert.equal(rpc.status, 503)
+    assert.equal((await rpc.json()).error.code, -32603)
+
+    const factory = new ClientFactory(
+      ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
+        transports: [new GrpcTransportFactory({ grpcChannelCredentials: grpc.credentials.createInsecure() })],
+        preferredTransports: ['GRPC'],
+      }),
+    )
+    const c = await factory.createFromAgentCard(await new DefaultAgentCardResolver().resolve(url))
+    await assert.rejects(c.sendMessage(SendMessageRequest.fromJSON({ message: message() })), /UNAVAILABLE|not ready/)
+
+    assert.equal(await report({ ready: true }), 204)
+    assert.equal((await probe('/readyz')).status, 200)
+    assert.equal((await client('send', url, 'back')).state, 'completed')
+  })
+
+  test('a reason that is not one plain line is refused', async () => {
+    assert.equal(await report({ ready: false, reason: 'line\nbreak' }), 400)
+    assert.equal(await report({ ready: false }), 400)
+  })
+})
+
 describe('input modes from the option', async () => {
   const { url } = await serve('--input-modes', 'text/plain, image/*,Application/PDF')
 
@@ -663,7 +745,9 @@ describe('the caller a gateway relays for, in a Secure Passport', async () => {
     const { card } = await client('card', url)
     // Protobuf JSON leaves out a false `required`, its default.
     assert.deepEqual(
-      card.capabilities.extensions.map(({ uri, required, params }) => ({ uri, required: required ?? false, params })),
+      card.capabilities.extensions
+        .filter(e => e.uri === uri)
+        .map(({ uri, required, params }) => ({ uri, required: required ?? false, params })),
       [{ uri, required: false, params: { supportedStateKeys: ['onBehalfOf'] } }],
     )
   })
@@ -872,7 +956,7 @@ describe('card extensions from a file', async () => {
     const declared = r.card.capabilities.extensions
     assert.deepEqual(
       declared.map(e => e.uri),
-      ['https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport', studio, showrunner],
+      [HEALTH, 'https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport', studio, showrunner],
     )
     const declaredStudio = declared.find(e => e.uri === studio)
     assert.equal(declaredStudio.description, 'Makes videos')

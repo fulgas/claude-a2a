@@ -67,6 +67,11 @@ const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.u
 const TRANSPORTS = { jsonrpc: 'JSONRPC', rest: 'HTTP+JSON', grpc: 'GRPC' }
 // The Secure Passport v1 extension (a2a-samples), by the URI of its folder there.
 const SECURE_PASSPORT = 'https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport'
+// The health probes extension, by the URI of the page that describes it (docs/extensions/health-v1.md).
+const HEALTH = 'https://github.com/fulgas/claude-a2a/blob/main/docs/extensions/health-v1.md'
+const HEALTH_PATHS = { livez: '/livez', readyz: '/readyz' }
+// How long a turn that ended without an answer keeps the agent not ready, unless one answers first.
+const NOT_READY_MS = 60_000
 
 const out = obj => process.stdout.write(`${JSON.stringify(obj)}\n`)
 const stateName = s => taskStateToJSON(s).replace('TASK_STATE_', '').toLowerCase()
@@ -364,6 +369,9 @@ async function serve(opts) {
   const callerTasks = perMinute(Number(opts['tasks-per-minute']))
   const authFailuresPerMinute = Number(opts['auth-failures-per-minute'])
   const running = new Set()
+  // Why Claude cannot take a task now, as the plugin last reported, until it answers a turn or NOT_READY_MS pass.
+  let unready
+  const notReady = () => (unready && unready.until > Date.now() ? unready.reason : undefined)
   const wholeAboveZero = flag => {
     const n = Number(opts[flag])
     if (!Number.isInteger(n) || n < 1) throw new Error(`--${flag} must be a whole number above 0, not "${opts[flag]}"`)
@@ -380,6 +388,7 @@ async function serve(opts) {
   const outboxes = mkdtempSync(join(tmpdir(), 'a2a-outbox-'))
   const inboxes = mkdtempSync(join(tmpdir(), 'a2a-inbox-'))
   const extensions = [
+    { uri: HEALTH, description: 'Health probes', required: false, params: HEALTH_PATHS },
     // A gateway's token names the gateway, so the caller it relays for comes in a Secure Passport.
     ...(opts['oidc-issuer']
       ? [{ uri: SECURE_PASSPORT, required: false, params: { supportedStateKeys: ['onBehalfOf'] } }]
@@ -601,13 +610,13 @@ async function serve(opts) {
   const peerName = socket => (socket.authorized ? (socket.getPeerCertificate().subject?.CN ?? 'client') : undefined)
   // A refusal made before the SDK sees the request is an error in the binding's own form: application/a2a+json with a
   // status name over REST, a JSON-RPC error over JSON-RPC (A2A 1.0, 9.1 and 11.1).
-  const refuse = (req, res, code, status, message) =>
+  const refuse = (req, res, code, status, message, rpcCode = -32600) =>
     req.originalUrl.startsWith('/a2a/rest')
       ? res
           .status(code)
           .type('application/a2a+json')
           .send(JSON.stringify({ error: { code, status, message } }))
-      : res.status(code).json({ jsonrpc: '2.0', id: null, error: { code: -32600, message } })
+      : res.status(code).json({ jsonrpc: '2.0', id: null, error: { code: rpcCode, message } })
   const authenticated = (req, res, nextMw) =>
     auth.authenticate({ headers: req.headers, peer: peerName(req.socket) }).then(
       ({ caller, client, error }) => {
@@ -637,13 +646,27 @@ async function serve(opts) {
             refuse(req, res, 429, 'RESOURCE_EXHAUSTED', 'too many failed attempts to sign in; try again in a minute'),
         })
       : (_req, _res, nextMw) => nextMw()
+  // Health probes: unauthenticated, as a gateway or a container's health check asks without credentials.
+  app.get(HEALTH_PATHS.livez, (_req, res) => res.json({ status: 'live' }))
+  app.get(HEALTH_PATHS.readyz, (_req, res) => {
+    const reason = notReady()
+    return reason ? res.status(503).json({ status: 'not_ready', reason }) : res.json({ status: 'ready' })
+  })
   app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(publicCard) }))
   if (signer) app.get('/.well-known/jwks.json', (_req, res) => res.json(signer.jwks))
   if (withHttp) {
     // Parsed here, after the credential check, up to maxRequestMiB; the SDK's own parser then leaves the body be.
     const body = express.json({ limit: `${maxRequestMiB}mb`, type: ['application/json', 'application/a2a+json'] })
-    app.use('/a2a/jsonrpc', limited, authenticated, body, jsonRpcHandler({ requestHandler, userBuilder }))
-    app.use('/a2a/rest', limited, authenticated, body, restHandler({ requestHandler, userBuilder }))
+    // While Claude cannot answer, a new task is refused with the reason (503), rather than started to fail.
+    const available = (req, res, nextMw) => {
+      const reason = notReady()
+      const sends = req.originalUrl.startsWith('/a2a/rest')
+        ? /\/message:(send|stream)$/.test(req.path)
+        : ['SendMessage', 'SendStreamingMessage'].includes(req.body?.method)
+      return reason && sends ? refuse(req, res, 503, 'UNAVAILABLE', `not ready: ${reason}`, -32603) : nextMw()
+    }
+    app.use('/a2a/jsonrpc', limited, authenticated, body, available, jsonRpcHandler({ requestHandler, userBuilder }))
+    app.use('/a2a/rest', limited, authenticated, body, available, restHandler({ requestHandler, userBuilder }))
     // Every error that reaches here is a JSON error too, never Express's own page, which can carry a stack trace: the
     // body parser's refusals keep their status (413 over maxRequestMiB, 415 for an encoding it cannot read, 400 for
     // anything that is not JSON), and anything else is a 500 that says nothing more.
@@ -672,32 +695,42 @@ async function serve(opts) {
 
   const grpcFailures = perMinute(authFailuresPerMinute)
   const grpcServer = new grpc.Server({ 'grpc.max_receive_message_length': maxRequestMiB * 1024 * 1024 })
-  grpcServer.addService(
-    A2AService,
-    grpcService({
-      requestHandler,
-      userBuilder: async call => {
-        const peer = call.getPeer().replace(/:\d+$/, '')
-        if (grpcFailures.isFull(peer)) {
-          throw Object.assign(new Error('too many failed attempts'), { code: grpc.status.RESOURCE_EXHAUSTED })
-        }
-        const header = name => call.metadata.get(name)[0]?.toString()
-        const { caller, client, error } = await auth.authenticate({
-          headers: { 'x-api-key': header('x-api-key'), authorization: header('authorization') },
-          peer: call.getAuthContext?.()?.sslPeerCertificate?.subject?.CN,
-        })
-        if (!caller) {
-          grpcFailures.add(peer)
-          throw error === 'insufficient_scope'
-            ? Object.assign(new Error('forbidden: the token lacks a scope this agent requires'), {
-                code: grpc.status.PERMISSION_DENIED,
-              })
-            : Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
-        }
-        return new Caller(caller, client)
-      },
-    }),
-  )
+  const service = grpcService({
+    requestHandler,
+    userBuilder: async call => {
+      const peer = call.getPeer().replace(/:\d+$/, '')
+      if (grpcFailures.isFull(peer)) {
+        throw Object.assign(new Error('too many failed attempts'), { code: grpc.status.RESOURCE_EXHAUSTED })
+      }
+      const header = name => call.metadata.get(name)[0]?.toString()
+      const { caller, client, error } = await auth.authenticate({
+        headers: { 'x-api-key': header('x-api-key'), authorization: header('authorization') },
+        peer: call.getAuthContext?.()?.sslPeerCertificate?.subject?.CN,
+      })
+      if (!caller) {
+        grpcFailures.add(peer)
+        throw error === 'insufficient_scope'
+          ? Object.assign(new Error('forbidden: the token lacks a scope this agent requires'), {
+              code: grpc.status.PERMISSION_DENIED,
+            })
+          : Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
+      }
+      return new Caller(caller, client)
+    },
+  })
+  // The same refusal over gRPC, as UNAVAILABLE.
+  for (const method of ['sendMessage', 'sendStreamingMessage']) {
+    const handle = service[method]
+    service[method] = (call, callback) => {
+      const reason = notReady()
+      if (!reason) return handle(call, callback)
+      const error = { code: grpc.status.UNAVAILABLE, details: `not ready: ${reason}` }
+      if (callback) return callback(error, null)
+      call.emit('error', error)
+      call.end()
+    }
+  }
+  grpcServer.addService(A2AService, service)
 
   // The plugin answers tasks here: POST /reply {taskId, ok, text}
   rmSync(opts.control, { force: true })
@@ -706,7 +739,16 @@ async function serve(opts) {
     req.on('data', d => (body += d))
     req.on('end', () => {
       try {
-        const { taskId, ok, text } = JSON.parse(body)
+        const report = JSON.parse(body)
+        // The plugin says whether Claude answered its last turn: a plain line it can show, never an error's text.
+        if (req.url === '/health') {
+          if (report.ready === true) unready = undefined
+          else if (typeof report.reason === 'string' && /^[^\r\n]{1,200}$/.test(report.reason))
+            unready = { reason: report.reason, until: Date.now() + NOT_READY_MS }
+          else return res.writeHead(400).end('ready must be true, or reason one line of at most 200 characters')
+          return res.writeHead(204).end()
+        }
+        const { taskId, ok, text } = report
         const resolve = pending.get(taskId)
         if (!resolve) return res.writeHead(404).end('no such pending task')
         resolve({ ok: ok !== false, text: String(text ?? '') })
