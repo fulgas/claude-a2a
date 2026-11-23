@@ -167,7 +167,7 @@ Then, in `managed-settings.json`, declare that marketplace, enable the plugin, a
 }
 ```
 
-- The managed `pluginConfigs` entry is then the server's only source of options: an option it leaves out takes its default, whatever a user `settings.json` or a stored credential says, so nothing written to the config folder can add an API key beside OIDC or raise a limit. Name every option the server needs there; an `apiKey` put there is readable by anyone who can read the managed file, so prefer OIDC.
+- The managed `pluginConfigs` entry is then the plugin's only source of options, for the server and the client tools alike: an option it leaves out takes its default, whatever a user `settings.json` or a stored credential says, so nothing written to the config folder can add an API key beside OIDC, raise a limit, or turn off `requireSignedCards`. Name every option the plugin needs there; an `apiKey` put there is readable by anyone who can read the managed file, so prefer OIDC.
 - With `allowManagedPermissionRulesOnly`, the rules this section lists (`Agent`, `Read` on the inbox, `Edit` on the outbox) go in the managed `permissions` too.
 - `disableSideloadFlags` makes Claude Code refuse `--plugin-dir`, so a script cannot load a plugin of its own.
 - The hook settings alone leave a writable `~/.claude` able to reach the model. Each of the other keys closes one way:
@@ -182,6 +182,8 @@ This was checked with Claude Code 2.1.322: a hook and permissions planted in the
 **Where tasks run.** With `taskMode` `inline` (the default), a task is a prompt in your conversation: you see it and its answer in the transcript, it waits until your own turn ends, and Claude answers it with everything the conversation holds. `fork` gives a subagent a copy of the conversation; `subagent` gives it none. **With `inline` or `fork`, anyone allowed to send tasks can ask for what is in your conversation**, pasted secrets included: use `subagent` when callers should not see it.
 
 **Limits.** Each task runs Claude on your tokens, so the server caps them: `maxConcurrentTasks` at once, and `tasksPerMinute` per caller (an API key, a JWT subject, or anonymous). A task over a limit fails at once, before any subagent starts, with a status that says which. A client that keeps failing to sign in is refused for the rest of the minute after `authFailuresPerMinute` attempts, so a key cannot be guessed.
+
+**Health.** `GET /livez` is 200 while the server is up. `GET /readyz` is 200 when Claude can take a task, or 503 with a reason when it cannot. Both are unauthenticated JSON, and the card declares them in the [health probes extension](docs/extensions/health-v1.md). After every turn the person didn't stop, the plugin tells the server whether Claude answered. A turn without an answer makes the server not ready, until one answers or for 60 seconds. While not ready, a new task is refused with the reason: 503 over HTTP, `UNAVAILABLE` over gRPC. A container's health check can ask `/readyz` instead of fetching the card.
 
 **Client.** The tools read the remote agent's card, check its signature, and meet one of its security requirements, preferring one that needs no person. An agent whose card asks for nothing gets no credential.
 
