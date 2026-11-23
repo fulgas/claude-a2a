@@ -10,7 +10,7 @@ permissions:
 
 env:
   # The Claude Code that runs `claude plugin validate` and `claude plugin test`; neither needs a login.
-  CLAUDE_CODE_VERSION: 2.1.323
+  CLAUDE_CODE_VERSION: 2.1.329
 
 jobs:
   test:
