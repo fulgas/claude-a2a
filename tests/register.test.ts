@@ -218,6 +218,34 @@ test('when the managed settings cannot be read, the server does not start', asyn
 })
 
 test(
+  'under managed settings that configure the plugin, the client takes its options from them alone',
+  { options: { clientApiKey: 'planted', trustedCardKeys: 'https://keys.example.test/jwks.json' } },
+  async ($, on) => {
+    let env: Record<string, string> | undefined
+    on('process.spawn', async function* (_, e) {
+      env = e.env
+      return yield* spawned(['{"type":"result","state":"completed"}\n'])
+    })
+    on('settings.read', (_, e) => ({
+      value:
+        e.source === 'policy'
+          ? {
+              pluginConfigs: {
+                'a2a@pheme-plugins': {
+                  options: { trustedCardKeys: 'https://keys.example.test/jwks.json', requireSignedCards: true },
+                },
+              },
+            }
+          : {},
+    }))
+
+    await $.tool.call({ tool: 'mcp__a2a__card', url: 'http://agent.test' })
+
+    expect(env).toEqual({ A2A_CARD_JWKS: 'https://keys.example.test/jwks.json', A2A_REQUIRE_SIGNED_CARDS: '1' })
+  },
+)
+
+test(
   'client calls carry the saved client credentials in the environment, never in argv',
   {
     options: {

@@ -98,10 +98,11 @@ async function reply($: EngineInterface, taskId: string, ok: boolean, text: stri
   })
 }
 
-// The server's options. Claude Code merges a plugin's options from every source, so under managed settings a user
-// settings.json or a stored credential could add one the managed file leaves out: an apiKey beside OIDC, or a higher
-// limit. When managed settings configure this plugin, their options are the only ones.
-async function serverOptions($: EngineInterface, options: PluginOptions): Promise<PluginOptions> {
+// The plugin's options, for the server and the client alike. Claude Code merges a plugin's options from every source,
+// so under managed settings a user settings.json or a stored credential could add one the managed file leaves out: an
+// apiKey beside OIDC, a higher limit, or requireSignedCards turned off. When managed settings configure this plugin,
+// their options are the only ones.
+async function pluginOptions($: EngineInterface, options: PluginOptions): Promise<PluginOptions> {
   const policy = (await $.settings.read({ source: 'policy' })) as {
     pluginConfigs?: Record<string, { options?: PluginOptions }>
   }
@@ -316,7 +317,7 @@ export const register: Register = (on, options) => {
       }),
       $.command.register({ name: 'a2a-stop', description: 'Stop the A2A server' }),
     ])
-    void serverOptions($, options).then(
+    void pluginOptions($, options).then(
       serving => {
         if (!serving.autoServe) return
         void startServer($, serveArgs(serving, [])).then(info => {
@@ -349,7 +350,7 @@ export const register: Register = (on, options) => {
     if (input.apiKey) args.push('--api-key', input.apiKey)
 
     let last: BridgeLine = { type: 'error', error: 'bridge exited without a result' }
-    for await (const msg of lines(bridge($, args, clientEnv(options)))) {
+    for await (const msg of lines(bridge($, args, clientEnv(await pluginOptions($, options))))) {
       if (msg.type === 'progress') $.ui.notice(e.tool_use_id, `${msg.state}: ${String(msg.text).slice(0, 120)}`)
       else if (msg.type === 'login') {
         // The call waits until the person signs in: on a device page with a code, or in the browser.
@@ -397,7 +398,7 @@ export const register: Register = (on, options) => {
     if (server) return { text: describeServer(server.info, server.taskMode) }
     let serving: PluginOptions
     try {
-      serving = await serverOptions($, options)
+      serving = await pluginOptions($, options)
     } catch (err) {
       return { text: `A2A server failed: the managed settings could not be read: ${(err as Error)?.message ?? err}` }
     }
