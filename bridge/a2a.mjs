@@ -642,8 +642,6 @@ async function serve(opts) {
             refuse(req, res, 429, 'RESOURCE_EXHAUSTED', 'too many failed attempts to sign in; try again in a minute'),
         })
       : (_req, _res, nextMw) => nextMw()
-  // Liveness for a container's health check: unauthenticated, and 200 while the process is up.
-  app.get('/livez', (_req, res) => res.json({ status: 'live' }))
   app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(publicCard) }))
   if (signer) app.get('/.well-known/jwks.json', (_req, res) => res.json(signer.jwks))
   if (withHttp) {

@@ -440,8 +440,8 @@ describe('health', async () => {
   const message = () => ({ messageId: randomUUID(), role: 'ROLE_USER', parts: [{ text: 'hi' }] })
   const reason = "Claude's last turn ended without an answer (api-error)"
 
-  test('livez is 200 while the server is up, and the card declares no probes', async () => {
-    assert.deepEqual(await probe('/livez'), { status: 200, body: { status: 'live' } })
+  test('there are no health probes, on the card or as paths', async () => {
+    assert.equal((await probe('/livez')).status, 404)
     assert.equal((await probe('/readyz')).status, 404)
     const card = await (await fetch(`${url}/.well-known/agent-card.json`)).json()
     assert.equal(card.capabilities.extensions, undefined)
@@ -449,7 +449,6 @@ describe('health', async () => {
 
   test('once the plugin reports Claude cannot answer, every transport refuses a task with the reason', async () => {
     assert.equal(await report({ ready: false, reason }), 204)
-    assert.equal((await probe('/livez')).status, 200)
 
     const rest = await send('a2a/rest/message:send', { message: message() })
     assert.equal(rest.status, 503)
