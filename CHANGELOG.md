@@ -6,8 +6,6 @@
 ### ⚠ BREAKING CHANGES
 
 * **server:** GET /readyz, GET /livez and the health probes extension on the card are removed; fetch the agent card for liveness
-* **server:** GET /readyz, GET /livez and the health probes extension on the card are removed; fetch the agent card for liveness
-* **server:** GET /readyz, GET /livez and the health probes extension on the card are removed; fetch the agent card for liveness
 
 ### Features
 
