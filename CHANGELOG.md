@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.3](https://github.com/fulgas/claude-a2a/compare/v0.10.2...v0.10.3) (2026-11-23)
+
+
+### Bug Fixes
+
+* **deps:** update bridge dependencies ([2fefa38](https://github.com/fulgas/claude-a2a/commit/2fefa38ef39cb28f4a5124dff7a5505715759046))
+* **deps:** update bridge dependencies ([581bf79](https://github.com/fulgas/claude-a2a/commit/581bf799914c0f1d1b8d2e2b7451836f486da879))
+
 ## [0.10.2](https://github.com/fulgas/claude-a2a/compare/v0.10.1...v0.10.2) (2026-11-18)
 
 
