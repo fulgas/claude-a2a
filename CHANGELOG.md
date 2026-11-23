@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/fulgas/claude-a2a/compare/v0.10.3...v0.11.0) (2026-11-23)
+
+
+### Features
+
+* **server:** health probes, declared on the card, and no new task while Claude cannot answer ([0e69ec5](https://github.com/fulgas/claude-a2a/commit/0e69ec5eb935820099c7d3d174a388d2543bd2b8))
+
+
+### Bug Fixes
+
+* **client:** under managed settings that configure the plugin, the client takes their options alone ([4c55686](https://github.com/fulgas/claude-a2a/commit/4c5568653c80408f4f4e6939581908d6cc901cd9))
+
 ## [0.10.3](https://github.com/fulgas/claude-a2a/compare/v0.10.2...v0.10.3) (2026-11-23)
 
 
