@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0](https://github.com/fulgas/claude-a2a/compare/v0.11.0...v0.12.0) (2026-11-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **server:** GET /readyz, GET /livez and the health probes extension on the card are removed; fetch the agent card for liveness
+
+### Features
+
+* **server:** GET /readyz, GET /livez and the health probes extension on the card are removed; fetch the agent card for liveness ([0b18fcc](https://github.com/fulgas/claude-a2a/commit/0b18fcceb388aac6c6454b8ecd9d514ea9e7c70d))
+* **server:** GET /readyz, GET /livez and the health probes extension on the card are removed; fetch the agent card for liveness ([3313cf5](https://github.com/fulgas/claude-a2a/commit/3313cf59b4848098f1005591a1eae5a43ff9554a))
+* **server:** GET /readyz, GET /livez and the health probes extension on the card are removed; fetch the agent card for liveness ([1f79d87](https://github.com/fulgas/claude-a2a/commit/1f79d878b96ed5eb50d06cc3a6ed46860d0d105e))
+
 ## [0.11.0](https://github.com/fulgas/claude-a2a/compare/v0.10.3...v0.11.0) (2026-11-23)
 
 
