@@ -67,9 +67,6 @@ const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.u
 const TRANSPORTS = { jsonrpc: 'JSONRPC', rest: 'HTTP+JSON', grpc: 'GRPC' }
 // The Secure Passport v1 extension (a2a-samples), by the URI of its folder there.
 const SECURE_PASSPORT = 'https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport'
-// The health probes extension, by the URI of the page that describes it (docs/extensions/health-v1.md).
-const HEALTH = 'https://github.com/fulgas/claude-a2a/blob/main/docs/extensions/health-v1.md'
-const HEALTH_PATHS = { livez: '/livez', readyz: '/readyz' }
 // How long a turn that ended without an answer keeps the agent not ready, unless one answers first.
 const NOT_READY_MS = 60_000
 
@@ -388,7 +385,6 @@ async function serve(opts) {
   const outboxes = mkdtempSync(join(tmpdir(), 'a2a-outbox-'))
   const inboxes = mkdtempSync(join(tmpdir(), 'a2a-inbox-'))
   const extensions = [
-    { uri: HEALTH, description: 'Health probes', required: false, params: HEALTH_PATHS },
     // A gateway's token names the gateway, so the caller it relays for comes in a Secure Passport.
     ...(opts['oidc-issuer']
       ? [{ uri: SECURE_PASSPORT, required: false, params: { supportedStateKeys: ['onBehalfOf'] } }]
@@ -646,12 +642,8 @@ async function serve(opts) {
             refuse(req, res, 429, 'RESOURCE_EXHAUSTED', 'too many failed attempts to sign in; try again in a minute'),
         })
       : (_req, _res, nextMw) => nextMw()
-  // Health probes: unauthenticated, as a gateway or a container's health check asks without credentials.
-  app.get(HEALTH_PATHS.livez, (_req, res) => res.json({ status: 'live' }))
-  app.get(HEALTH_PATHS.readyz, (_req, res) => {
-    const reason = notReady()
-    return reason ? res.status(503).json({ status: 'not_ready', reason }) : res.json({ status: 'ready' })
-  })
+  // Liveness for a container's health check: unauthenticated, and 200 while the process is up.
+  app.get('/livez', (_req, res) => res.json({ status: 'live' }))
   app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: async () => AgentCard.toJSON(publicCard) }))
   if (signer) app.get('/.well-known/jwks.json', (_req, res) => res.json(signer.jwks))
   if (withHttp) {
