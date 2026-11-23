@@ -415,9 +415,7 @@ describe('a body the server cannot read', async () => {
   })
 })
 
-const HEALTH = 'https://github.com/fulgas/claude-a2a/blob/main/docs/extensions/health-v1.md'
-
-describe('health probes', async () => {
+describe('health', async () => {
   const { url, control } = await serve()
   // What the plugin tells the bridge after a turn: whether Claude answered.
   const report = body =>
@@ -431,7 +429,7 @@ describe('health probes', async () => {
     )
   const probe = async path => {
     const res = await fetch(`${url}${path}`)
-    return { status: res.status, body: await res.json() }
+    return { status: res.status, body: await res.json().catch(() => undefined) }
   }
   const send = (path, body) =>
     fetch(`${url}/${path}`, {
@@ -442,24 +440,15 @@ describe('health probes', async () => {
   const message = () => ({ messageId: randomUUID(), role: 'ROLE_USER', parts: [{ text: 'hi' }] })
   const reason = "Claude's last turn ended without an answer (api-error)"
 
-  test('the card declares them, as paths on its own origin', async () => {
+  test('there are no health probes, on the card or as paths', async () => {
+    assert.equal((await probe('/livez')).status, 404)
+    assert.equal((await probe('/readyz')).status, 404)
     const card = await (await fetch(`${url}/.well-known/agent-card.json`)).json()
-    assert.deepEqual(
-      // Protobuf JSON leaves out a false `required`, its default.
-      card.capabilities.extensions.find(e => e.uri === HEALTH),
-      { uri: HEALTH, description: 'Health probes', params: { livez: '/livez', readyz: '/readyz' } },
-    )
+    assert.equal(card.capabilities.extensions, undefined)
   })
 
-  test('livez and readyz are 200 while Claude can take a task', async () => {
-    assert.deepEqual(await probe('/livez'), { status: 200, body: { status: 'live' } })
-    assert.deepEqual(await probe('/readyz'), { status: 200, body: { status: 'ready' } })
-  })
-
-  test('once the plugin reports Claude cannot answer, readyz says why and every transport refuses a task', async () => {
+  test('once the plugin reports Claude cannot answer, every transport refuses a task with the reason', async () => {
     assert.equal(await report({ ready: false, reason }), 204)
-    assert.deepEqual(await probe('/readyz'), { status: 503, body: { status: 'not_ready', reason } })
-    assert.equal((await probe('/livez')).status, 200)
 
     const rest = await send('a2a/rest/message:send', { message: message() })
     assert.equal(rest.status, 503)
@@ -487,7 +476,6 @@ describe('health probes', async () => {
     await assert.rejects(c.sendMessage(SendMessageRequest.fromJSON({ message: message() })), /UNAVAILABLE|not ready/)
 
     assert.equal(await report({ ready: true }), 204)
-    assert.equal((await probe('/readyz')).status, 200)
     assert.equal((await client('send', url, 'back')).state, 'completed')
   })
 
@@ -956,7 +944,7 @@ describe('card extensions from a file', async () => {
     const declared = r.card.capabilities.extensions
     assert.deepEqual(
       declared.map(e => e.uri),
-      [HEALTH, 'https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport', studio, showrunner],
+      ['https://github.com/a2aproject/a2a-samples/tree/main/extensions/secure-passport', studio, showrunner],
     )
     const declaredStudio = declared.find(e => e.uri === studio)
     assert.equal(declaredStudio.description, 'Makes videos')
