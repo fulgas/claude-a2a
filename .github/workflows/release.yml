@@ -22,8 +22,8 @@ jobs:
     name: Release pull request, tag and GitHub Release
     runs-on: ubuntu-26.04
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      sha: ${{ steps.release.outputs.sha }}
+      release_created: ${{ steps.release.outputs.release_created || steps.retry.outputs.release_created }}
+      sha: ${{ steps.release.outputs.sha || steps.retry.outputs.sha }}
     concurrency:
       group: release
       cancel-in-progress: false
@@ -38,6 +38,17 @@ jobs:
           permission-pull-requests: write
           permission-issues: write
       - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        # GitHub's git data API fails now and then ("Error adding to tree"): one retry, after a pause, takes care of it.
+        continue-on-error: true
+        with:
+          token: ${{ steps.app.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      - if: steps.release.outcome == 'failure'
+        run: sleep 30
+      - id: retry
+        if: steps.release.outcome == 'failure'
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ steps.app.outputs.token }}
