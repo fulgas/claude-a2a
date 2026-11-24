@@ -685,36 +685,37 @@ async function serve(opts) {
 
   const grpcFailures = perMinute(authFailuresPerMinute)
   const grpcServer = new grpc.Server({ 'grpc.max_receive_message_length': maxRequestMiB * 1024 * 1024 })
-  const service = grpcService({
-    requestHandler,
-    userBuilder: async call => {
-      const peer = call.getPeer().replace(/:\d+$/, '')
-      if (grpcFailures.isFull(peer)) {
-        throw Object.assign(new Error('too many failed attempts'), { code: grpc.status.RESOURCE_EXHAUSTED })
-      }
-      const header = name => call.metadata.get(name)[0]?.toString()
-      const { caller, client, error } = await auth.authenticate({
-        headers: { 'x-api-key': header('x-api-key'), authorization: header('authorization') },
-        peer: call.getAuthContext?.()?.sslPeerCertificate?.subject?.CN,
-      })
-      if (!caller) {
-        grpcFailures.add(peer)
-        throw error === 'insufficient_scope'
-          ? Object.assign(new Error('forbidden: the token lacks a scope this agent requires'), {
-              code: grpc.status.PERMISSION_DENIED,
-            })
-          : Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
-      }
-      return new Caller(caller, client)
-    },
-  })
-  // The same refusal over gRPC, as UNAVAILABLE.
+  const grpcUser = async call => {
+    const peer = call.getPeer().replace(/:\d+$/, '')
+    if (grpcFailures.isFull(peer)) {
+      throw Object.assign(new Error('too many failed attempts'), { code: grpc.status.RESOURCE_EXHAUSTED })
+    }
+    const header = name => call.metadata.get(name)[0]?.toString()
+    const { caller, client, error } = await auth.authenticate({
+      headers: { 'x-api-key': header('x-api-key'), authorization: header('authorization') },
+      peer: call.getAuthContext?.()?.sslPeerCertificate?.subject?.CN,
+    })
+    if (!caller) {
+      grpcFailures.add(peer)
+      throw error === 'insufficient_scope'
+        ? Object.assign(new Error('forbidden: the token lacks a scope this agent requires'), {
+            code: grpc.status.PERMISSION_DENIED,
+          })
+        : Object.assign(new Error('unauthorized'), { code: grpc.status.UNAUTHENTICATED })
+    }
+    return new Caller(caller, client)
+  }
+  const service = grpcService({ requestHandler, userBuilder: grpcUser })
+  // The same refusal over gRPC, as UNAVAILABLE, and after the credential check, as over HTTP: a caller that fails it
+  // gets its own refusal, counted against the sign-in limit, and never learns why the agent is not ready.
   for (const method of ['sendMessage', 'sendStreamingMessage']) {
     const handle = service[method]
-    service[method] = (call, callback) => {
-      const reason = notReady()
-      if (!reason) return handle(call, callback)
-      const error = { code: grpc.status.UNAVAILABLE, details: `not ready: ${reason}` }
+    service[method] = async (call, callback) => {
+      if (!notReady()) return handle(call, callback)
+      const error = await grpcUser(call).then(
+        () => ({ code: grpc.status.UNAVAILABLE, details: `not ready: ${notReady()}` }),
+        err => ({ code: err.code ?? grpc.status.UNKNOWN, details: err.message }),
+      )
       if (callback) return callback(error, null)
       call.emit('error', error)
       call.end()
