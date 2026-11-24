@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/fulgas/claude-a2a/compare/v0.12.0...v0.12.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **server:** over gRPC, a caller is authenticated before it learns the agent is not ready ([4864001](https://github.com/fulgas/claude-a2a/commit/486400100e30769d810ea0e8e5ea9ab6489caa07))
+
 ## [0.12.0](https://github.com/fulgas/claude-a2a/compare/v0.11.0...v0.12.0) (2026-11-23)
 
 
