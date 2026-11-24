@@ -485,6 +485,27 @@ describe('health', async () => {
   })
 })
 
+describe('not ready, with an API key', async () => {
+  const { url, control } = await serve('--api-key', 'k3y')
+
+  test('a caller is authenticated before it learns the agent is not ready, on every transport', async () => {
+    await new Promise(resolve =>
+      http
+        .request({ socketPath: control, path: '/health', method: 'POST' }, res => resolve(res.resume()))
+        .end(JSON.stringify({ ready: false, reason: "Claude's last turn ended without an answer (api-error)" })),
+    )
+    for (const transport of ['jsonrpc', 'rest', 'grpc']) {
+      const anonymous = (await client('send', url, 'x', '--transport', transport)).error
+      assert.doesNotMatch(anonymous, /not ready/, transport)
+      const wrong = (await client('send', url, 'x', '--transport', transport, '--api-key', 'nope')).error
+      assert.match(wrong, /401|unauthorized|UNAUTHENTICATED/i, transport)
+      assert.doesNotMatch(wrong, /not ready/, transport)
+      const signedIn = (await client('send', url, 'x', '--transport', transport, '--api-key', 'k3y')).error
+      assert.match(signedIn, /not ready: Claude's last turn ended without an answer/, transport)
+    }
+  })
+})
+
 describe('input modes from the option', async () => {
   const { url } = await serve('--input-modes', 'text/plain, image/*,Application/PDF')
 
