@@ -711,9 +711,11 @@ async function serve(opts) {
   for (const method of ['sendMessage', 'sendStreamingMessage']) {
     const handle = service[method]
     service[method] = async (call, callback) => {
-      if (!notReady()) return handle(call, callback)
+      // The reason as the call arrived: the agent may turn ready while the caller is checked.
+      const reason = notReady()
+      if (!reason) return handle(call, callback)
       const error = await grpcUser(call).then(
-        () => ({ code: grpc.status.UNAVAILABLE, details: `not ready: ${notReady()}` }),
+        () => ({ code: grpc.status.UNAVAILABLE, details: `not ready: ${reason}` }),
         err => ({ code: err.code ?? grpc.status.UNKNOWN, details: err.message }),
       )
       if (callback) return callback(error, null)
