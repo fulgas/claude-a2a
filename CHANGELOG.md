@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/fulgas/claude-a2a/compare/v0.12.1...v0.12.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **server:** a gRPC caller refused as not ready always gets the reason ([c4b1b65](https://github.com/fulgas/claude-a2a/commit/c4b1b6518575a62239306ec04c2001c03dbfe5b3))
+
 ## [0.12.1](https://github.com/fulgas/claude-a2a/compare/v0.12.0...v0.12.1) (2026-11-24)
 
 
